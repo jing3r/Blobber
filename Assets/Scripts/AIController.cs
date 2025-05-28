@@ -5,63 +5,71 @@ using System.Linq;
 [RequireComponent(typeof(CharacterStats))]
 [RequireComponent(typeof(AIMovement))]
 [RequireComponent(typeof(AICombat))]
-[RequireComponent(typeof(AIPerception))] // Добавляем зависимость
+[RequireComponent(typeof(AIPerception))]
 public class AIController : MonoBehaviour
 {
+    // Enum состояний остается здесь, так как он определяет типы состояний
     public enum AIState { Idle, Wandering, Chasing, Attacking, Fleeing, Dead }
-    [SerializeField] private AIState currentState = AIState.Idle;
+    [SerializeField] private AIState currentStateDebugView; // Для отладки в инспекторе
+    private IAIState currentStateObject;
+    private Dictionary<AIState, IAIState> availableStates;
 
     public enum Alignment { Friendly, Neutral, Hostile }
     [Header("AI Behavior")]
     public Alignment currentAlignment = Alignment.Hostile;
-    public bool canBecomeHostileOnAttack = true; // Если атакован игроком
+    public bool canBecomeHostileOnAttack = true;
     public bool canFlee = false;
     public float fleeHealthThreshold = 0.3f;
-    public bool fleesOnSightOfPlayer = false; // Использует радиус из AIPerception.fleeOnSightRadiusPlayer
+    public bool fleesOnSightOfPlayer = false;
 
     [Header("Idle Behavior")]
     public bool canWander = true;
-    public float wanderRadius = 5f;
+    public float wanderRadius = 5f; // Используется AIStateIdle/Wandering через геттер
     public float minWanderWaitTime = 2f;
     public float maxWanderWaitTime = 5f;
+    private float nextWanderTimeInternal = 0f;
+    private Vector3 currentWanderDestinationInternal;
+    private bool isWanderingToActiveDestinationInternal = false;
+
 
     [Header("State Transition Parameters (Distances)")]
-    // aggroRadius, sightRadiusForFlee теперь в AIPerception
-    [Tooltip("Radius to switch from Chasing to Attacking state. AICombat.effectiveAttackRange should be consistent.")]
     public float attackStateSwitchRadius = 2f; 
-    public float fleeDistance = 15f; // Как далеко убегать
+    public float fleeDistance = 20f;
 
     [Header("Rewards")]
     public List<InventoryItem> potentialLoot = new List<InventoryItem>();
     public int experienceReward = 25;
 
-    private AIMovement movement;
-    private AICombat combat; 
-    private AIPerception perception; // Новая ссылка
-    private CharacterStats myStats;
-    private Transform playerPartyTransformRef; // Только для ссылки, актуальный видимый игрок через perception
-    private PartyManager partyManager; 
-    private FeedbackManager feedbackManager; 
+    // Публичные свойства для доступа из состояний
+    public AIMovement Movement { get; private set; }
+    public AICombat Combat { get; private set; }
+    public AIPerception Perception { get; private set; }
+    public CharacterStats MyStats { get; private set; }
+    public Transform PlayerPartyTransformRef { get; private set; } // Ссылка на объект игрока
+    public PartyManager PartyManagerRef { get; private set; }     // Ссылка на PartyManager
+    public FeedbackManager FeedbackManagerRef { get; private set; } // Локальный или общий FeedbackManager
+    private Transform currentThreatInternal;
+    public Transform CurrentThreat => currentThreatInternal;
 
-    private Transform currentThreatInternal; // Используется для хранения текущей цели AI
-    public Transform CurrentThreat => currentThreatInternal; // Публичный геттер, если нужно извне
-
-    private float nextWanderTime = 0f;
-    private Vector3 wanderDestination;
-    private bool isWanderingToDestination = false;
 
     void Awake()
     {
-        movement = GetComponent<AIMovement>();
-        combat = GetComponent<AICombat>(); 
-        perception = GetComponent<AIPerception>();
-        myStats = GetComponent<CharacterStats>();
+        Movement = GetComponent<AIMovement>();
+        Combat = GetComponent<AICombat>(); 
+        Perception = GetComponent<AIPerception>();
+        MyStats = GetComponent<CharacterStats>();
 
-        if (myStats == null) { enabled = false; return; } // Остальные проверки на null в компонентах
-        if (movement == null || combat == null || perception == null) { enabled = false; return; }
+        if (MyStats == null || Movement == null || Combat == null || Perception == null)
+        {
+            Debug.LogError($"AIController ({gameObject.name}): One or more required components are missing! AI will be disabled.", this);
+            enabled = false; 
+            return;
+        }
 
-        myStats.onDied += HandleDeath;
-        myStats.onHealthChanged.AddListener(CheckFleeConditionOnHealthChange);
+        MyStats.onDied += HandleDeath; // Подписываемся на смерть
+        MyStats.onHealthChanged.AddListener(CheckFleeConditionOnHealthChange);
+
+        InitializeStates();
     }
 
     void Start()
@@ -69,327 +77,420 @@ public class AIController : MonoBehaviour
         GameObject playerObject = GameObject.FindGameObjectWithTag("Player");
         if (playerObject != null)
         {
-            playerPartyTransformRef = playerObject.transform; // Сохраняем ссылку на объект игрока
-            partyManager = playerObject.GetComponent<PartyManager>();
-            // FeedbackManager для сообщений AIController (не боевых)
-            // Боевые сообщения обрабатываются AICombat
-            feedbackManager = GetComponent<FeedbackManager>();
-            // if (feedbackManager == null && playerObject != null) { feedbackManager = playerObject.GetComponentInChildren<FeedbackManager>(); }
+            PlayerPartyTransformRef = playerObject.transform;
+            PartyManagerRef = playerObject.GetComponent<PartyManager>();
+            // Пытаемся получить локальный FeedbackManager, если нет, то с игрока
+            FeedbackManagerRef = GetComponent<FeedbackManager>();
+            if (FeedbackManagerRef == null && playerObject != null)
+            {
+                FeedbackManagerRef = playerObject.GetComponentInChildren<FeedbackManager>();
+            }
         }
 
-        if (currentAlignment == Alignment.Hostile && playerPartyTransformRef != null && perception.IsTargetInRadius(playerPartyTransformRef, perception.aggroRadiusPlayer) && perception.HasLineOfSightToTarget(playerPartyTransformRef) )
+        if (currentAlignment == Alignment.Hostile && PlayerPartyTransformRef != null && 
+            Perception.IsTargetInRadius(PlayerPartyTransformRef, Perception.engageRadius) && 
+            Perception.HasLineOfSightToTarget(PlayerPartyTransformRef))
         {
-            // Изначально враждебный AI сразу пытается найти игрока как угрозу, если он в радиусе агрессии
-            // AIPerception обновит PrimaryHostileThreat, и мы его подхватим в Update
+            // Первоначальная угроза устанавливается через Update, который вызовет Perception
         }
         if (canWander)
         {
-            nextWanderTime = Time.time + Random.Range(minWanderWaitTime, maxWanderWaitTime);
+            ResetWanderTimer();
         }
         
-        if (combat != null) combat.effectiveAttackRange = attackStateSwitchRadius;
+        if (Combat != null) Combat.effectiveAttackRange = attackStateSwitchRadius;
+        
+        // Устанавливаем начальное состояние
+        ChangeState(AIState.Idle); // Начинаем с Idle
     }
 
-    void Update()
+    private void InitializeStates()
     {
-        if (currentState == AIState.Dead || myStats == null || myStats.IsDead)
+        availableStates = new Dictionary<AIState, IAIState>
         {
-            if (myStats !=null && myStats.IsDead && currentState != AIState.Dead) HandleDeath();
-            return;
-        }
+            { AIState.Idle, new AIStateIdle() },
+            { AIState.Wandering, new AIStateWandering() },
+            { AIState.Chasing, new AIStateChasing() },
+            { AIState.Attacking, new AIStateAttacking() },
+            { AIState.Fleeing, new AIStateFleeing() }
+            // Состояние Dead обрабатывается особым образом (через HandleDeath)
+        };
+    }
 
-        // Обновляем информацию об угрозах из AIPerception
-        // currentThreatInternal должен быть приоритетной целью для текущих действий AI
-        // AIPerception.PrimaryHostileThreat - это то, что сенсор считает основной враждебной целью
-        // AIController решает, на кого реагировать, на основе своего состояния и alignment
-        
-        // Если AI враждебен, его основная угроза - это то, что видит perception как PrimaryHostileThreat
-        if (currentAlignment == Alignment.Hostile)
+// В AIController.cs
+
+void Update()
+{
+    if (currentStateObject == null || MyStats == null || MyStats.IsDead)
+    {
+        // Если AI мертв, HandleDeath уже должен был все остановить.
+        // Если currentStateObject null, но AI не мертв (ошибка инициализации), пытаемся восстановить.
+        if (currentStateObject == null && (MyStats != null && !MyStats.IsDead))
         {
-            currentThreatInternal = perception.PrimaryHostileThreat;
+            ChangeState(AIState.Idle);
         }
-        // Если AI не враждебен, но игрок видим и близко (в aggroRadiusPlayer),
-        // то игрок становится *потенциальной* угрозой, если AI будет атакован.
-        // Но currentThreatInternal пока не устанавливается на игрока, если AI не враждебен.
-        // Это произойдет в BecomeHostileTowards.
-        else if (perception.PlayerTarget != null && Vector3.Distance(transform.position, perception.PlayerTarget.position) <= perception.aggroRadiusPlayer)
+        return;
+    }
+
+    // --- 1. Определение/Обновление CurrentThreat на основе данных от Perception ---
+    Transform perceivedHostileThreat = null;
+    if (currentAlignment == Alignment.Hostile) // Только если мы в принципе враждебны
+    {
+        // Perception должен давать нам наиболее подходящую враждебную цель, которую он видит СЕЙЧАС
+        // с учетом engageRadius и LOS.
+        perceivedHostileThreat = Perception.GetPrimaryHostileThreatAggro();
+    }
+
+    // Если Perception видит новую/другую враждебную цель, ИЛИ если у нас нет текущей угрозы, а Perception нашел.
+    if (perceivedHostileThreat != null && currentThreatInternal != perceivedHostileThreat)
+    {
+        // Debug.Log($"AIController: Perception identified new/better threat: {perceivedHostileThreat.name}. Old threat: {currentThreatInternal?.name}.");
+        SetCurrentThreat(perceivedHostileThreat);
+        // Если мы были в Idle/Wandering и сагрились, состояние Chasing установится в UpdateState этих состояний или в BecomeHostile.
+    }
+    // Если perceivedHostileThreat == null (Perception никого не видит как агрессивную цель),
+    // а у нас был currentThreatInternal, мы НЕ сбрасываем его здесь сразу.
+    // Сброс currentThreatInternal произойдет ниже, если он станет невалидным, выйдет за disengageRadius, или потеряет LOS надолго.
+
+
+    // --- 2. Обработка текущей установленной угрозы currentThreatInternal ---
+    if (currentThreatInternal != null)
+    {
+        bool threatIsInvalid = false;
+        CharacterStats singleThreatStats = null; // Для кеширования, если это одиночный NPC
+
+        if (currentThreatInternal.CompareTag("Player"))
         {
-            // Игрок рядом, но AI еще не враждебен. currentThreatInternal остается null или предыдущим значением,
-            // если он не был враждебен к кому-то другому.
-        }
-        // Если текущая угроза исчезла (например, убита или вышла из зоны видимости сенсора), сбрасываем
-        if (currentThreatInternal != null && (currentThreatInternal.GetComponent<CharacterStats>() == null || currentThreatInternal.GetComponent<CharacterStats>().IsDead || !perception.IsTargetInRadius(currentThreatInternal, perception.sightRadius)))
-        {
-            // Проверяем, не видит ли сенсор эту угрозу все еще как PrimaryHostileThreat
-            if (currentThreatInternal != perception.PrimaryHostileThreat)
+            if (PartyManagerRef != null)
             {
-                 currentThreatInternal = null;
+                bool anyPartyMemberAlive = false;
+                foreach (CharacterStats member in PartyManagerRef.partyMembers)
+                {
+                    if (member != null && !member.IsDead)
+                    {
+                        anyPartyMemberAlive = true;
+                        break;
+                    }
+                }
+                if (!anyPartyMemberAlive)
+                {
+                    threatIsInvalid = true;
+                    // Debug.Log($"AIController.Update: Player party (threat: {currentThreatInternal.name}) is wiped out.");
+                }
+            }
+            // Если PartyManagerRef null, считаем игрока валидной угрозой, пока сам объект существует.
+        }
+        else // Это не объект "Player", предполагаем, что это NPC
+        {
+            singleThreatStats = currentThreatInternal.GetComponent<CharacterStats>();
+            if (singleThreatStats != null)
+            {
+                if (singleThreatStats.IsDead)
+                {
+                    threatIsInvalid = true;
+                }
+            }
+            else // Нет CharacterStats, считаем невалидной боевой целью
+            {
+                threatIsInvalid = true;
+                // Debug.LogWarning($"AIController.Update: CurrentThreat {currentThreatInternal.name} is not Player and has no CharacterStats. Marking as invalid for combat.");
             }
         }
 
-
-        // Высокоприоритетная проверка: Бегство при виде игрока (если не враждебен)
-        if (fleesOnSightOfPlayer && perception.PlayerTarget != null &&
-            currentState != AIState.Fleeing && currentState != AIState.Dead && currentAlignment != Alignment.Hostile)
+        if (threatIsInvalid)
         {
-            if (perception.IsPlayerVisibleAndInFleeRadius())
+            // Debug.Log($"AIController.Update: CurrentThreat {currentThreatInternal.name} is now invalid. Clearing.");
+            ClearCurrentThreat(); 
+            // Состояния (Chasing, Attacking, Fleeing) сами должны обработать null currentThreat и перейти в Idle.
+        }
+        else // Угроза (или хотя бы один член партии игрока) жива
+        {
+            // Проверяем расстояние и LOS только если мы не в состоянии бегства ОТ этой угрозы
+            if (currentStateObject.GetStateType() != AIState.Fleeing || 
+                (currentStateObject.GetStateType() == AIState.Fleeing && currentThreatInternal != PlayerPartyTransformRef && PlayerPartyTransformRef != null)) // Если убегаем не от игрока, а игрок стал новой угрозой (маловероятно без сложной логики)
             {
-                ForceFlee(perception.PlayerTarget); 
-                return; 
+                // Для LOS и disengageRadius используем позицию currentThreatInternal (которая будет позицией объекта Player для партии)
+                float distanceToThreat = Vector3.Distance(transform.position, currentThreatInternal.position);
+
+                if (distanceToThreat > Perception.disengageRadius)
+                {
+                    // Debug.Log($"AIController.Update: CurrentThreat {currentThreatInternal.name} is beyond disengage radius ({distanceToThreat} > {Perception.disengageRadius}). Clearing.");
+                    ClearCurrentThreat();
+                }
+                else
+                {
+                    // Проверка на потерю Line of Sight (без "памяти")
+                    // Если AI враждебен и Perception больше не видит ЭТУ ЖЕ цель как PrimaryHostileThreatAggro
+                    // (например, она скрылась за препятствием, и GetPrimaryHostileThreatAggro теперь null или другая цель),
+                    // то мы должны сбросить currentThreatInternal, чтобы AI не продолжал тупо идти в стену.
+                    if (currentAlignment == Alignment.Hostile)
+                    {
+                        Transform currentlyVisibleAggroThreat = Perception.GetPrimaryHostileThreatAggro();
+                        if (currentlyVisibleAggroThreat != currentThreatInternal)
+                        {
+                            // Если основная видимая угроза изменилась (или исчезла),
+                            // а мы все еще сфокусированы на старой currentThreatInternal.
+                            // Debug.Log($"AIController.Update: Current threat {currentThreatInternal.name} no longer primary visible aggro threat (Perception sees: {currentlyVisibleAggroThreat?.name}). Clearing current.");
+                            ClearCurrentThreat(); 
+                            // В следующем кадре, если currentlyVisibleAggroThreat все еще есть, он станет новым currentThreatInternal.
+                            // Если currentlyVisibleAggroThreat null, то AI перейдет в Idle.
+                        }
+                    }
+                    // Если AI не враждебен, но currentThreatInternal был установлен (например, для бегства),
+                    // то мы не сбрасываем его по потере LOS, пока не сработает fleeDistance.
+                }
             }
         }
-        
-        switch (currentState)
-        {
-            case AIState.Idle:      UpdateIdleState();      break;
-            case AIState.Wandering: UpdateWanderingState(); break;
-            case AIState.Chasing:   UpdateChasingState();   break;
-            case AIState.Attacking: UpdateAttackingState(); break;
-            case AIState.Fleeing:   UpdateFleeingState();   break;
-        }
     }
+    
+    // Если после всех проверок у нас нет активной угрозы (currentThreatInternal == null),
+    // и AI враждебен, то он может просто стоять или блуждать,
+    // пока Perception не найдет новую цель (perceivedHostileThreat) в следующем цикле Update.
+    // Этот блок может быть избыточен, если perceivedHostileThreat уже устанавливает currentThreatInternal в начале.
+    // if (currentThreatInternal == null && currentAlignment == Alignment.Hostile)
+    // {
+    //     Transform potentialNewThreat = Perception.GetPrimaryHostileThreatAggro();
+    //     if (potentialNewThreat != null)
+    //     {
+    //         Debug.Log($"AIController.Update: No current threat, Perception sees new aggro target {potentialNewThreat.name}. Engaging.");
+    //         SetCurrentThreat(potentialNewThreat);
+    //     }
+    // }
 
-    private void UpdateIdleState()
+
+    // --- 3. Логика "бегства при виде игрока" (для не-враждебных NPC) ---
+    if (fleesOnSightOfPlayer && Perception.PlayerTarget != null && // PlayerTarget из Perception уже учитывает LOS и visionCone
+        currentStateObject.GetStateType() != AIState.Fleeing && 
+        currentStateObject.GetStateType() != AIState.Dead &&    
+        currentAlignment != Alignment.Hostile)                 
     {
-        if (currentAlignment == Alignment.Hostile && currentThreatInternal != null)
+        // IsPlayerSpottedForFleeing в Perception должен учитывать и угол, и LOS, и радиус для *первоначального* "испуга"
+        if (Perception.IsPlayerSpottedForFleeing()) 
         {
-            // Расстояние до currentThreatInternal уже проверено в Update через perception.PrimaryHostileThreat
-            // или будет проверено при BecomeHostile.
-            // Здесь просто переключаем состояние, если угроза есть и мы враждебны.
-            currentState = AIState.Chasing;
-            isWanderingToDestination = false; 
-            return;
-        }
-
-        if (canWander && Time.time >= nextWanderTime && movement.IsOnNavMesh())
-        {
-            SetNewWanderDestination();
-            if (isWanderingToDestination) { currentState = AIState.Wandering; }
-            else { nextWanderTime = Time.time + Random.Range(minWanderWaitTime, maxWanderWaitTime); }
+            // Debug.Log($"AIController: Player spotted for fleeing via Perception. Forcing flee.");
+            ForceFlee(Perception.PlayerTarget); 
+            // Не нужно вызывать currentStateObject.UpdateState(this) здесь,
+            // так как ForceFlee меняет состояние, и следующий Update обработает новое состояние.
+            return; // Выходим, так как состояние изменилось, и UpdateState для старого состояния не нужен.
         }
     }
+    
+    // --- 4. Обновление текущего состояния AI ---
+    // Убедимся, что currentStateObject не null (на случай если HandleDeath его обнулил, а мы еще здесь)
+    if (currentStateObject != null) 
+    {
+        currentStateObject.UpdateState(this);
+    }
+    
+    // currentStateDebugView = currentStateObject?.GetStateType() ?? AIState.Dead; // Обновляем для отладки
+}
+public void BecomeHostileTowards(Transform threatSource, bool forceAggro = false)
+{
+    // Debug.Log($"BecomeHostileTowards called. Current State: {currentStateObject?.GetStateType()}, Threat: {threatSource?.name}, ForceAggro: {forceAggro}, CurrentAlignment: {currentAlignment}");
 
-    private void SetNewWanderDestination()
+    // Если уже враждебны к этой цели и не форсируем агрессию,
+    // но находимся в "мирном" состоянии, то просто переводим в Chasing.
+    if (currentAlignment == Alignment.Hostile && currentThreatInternal == threatSource && !forceAggro)
+    {
+        if (currentStateObject.GetStateType() == AIState.Idle || 
+            currentStateObject.GetStateType() == AIState.Wandering ||
+            currentStateObject.GetStateType() == AIState.Fleeing) // Если были в Fleeing от другой цели, а эта снова сагрила
+        {
+            // Debug.Log($"BecomeHostile: Already hostile to {threatSource.name}, was in {currentStateObject.GetStateType()}, ensuring Chasing.");
+            FaceTarget(threatSource); // Все равно разворачиваемся, на всякий случай
+            ChangeState(AIState.Chasing);
+        }
+        return;
+    }
+    
+    bool canActuallyBecomeHostile = (currentAlignment == Alignment.Neutral) || 
+                                    (currentAlignment == Alignment.Friendly && canBecomeHostileOnAttack) ||
+                                    forceAggro;
+
+    if (canActuallyBecomeHostile)
+    {
+        bool wasPreviouslyHostile = (currentAlignment == Alignment.Hostile);
+        Transform previousThreat = currentThreatInternal;
+
+        currentAlignment = Alignment.Hostile;
+        SetCurrentThreat(threatSource); // Устанавливаем новую/текущую угрозу
+
+        // ПРИНУДИТЕЛЬНЫЙ РАЗВОРОТ К УГРОЗЕ
+        // Debug.Log($"BecomeHostile: About to face target {threatSource.name}. Current rotation: {transform.rotation.eulerAngles}");
+        FaceTarget(threatSource); 
+        // Debug.Log($"BecomeHostile: Faced target {threatSource.name}. New rotation: {transform.rotation.eulerAngles}");
+
+        // Показываем сообщение, если изменилось отношение или цель, или если форсируем
+        if (!wasPreviouslyHostile || previousThreat != threatSource || forceAggro)
+        {
+            string message = $"{gameObject.name} теперь враждебен к {threatSource.name}!";
+            FeedbackManagerRef?.ShowFeedbackMessage(message);
+            // Debug.Log(message);
+        }
+        
+        // Переходим в Chasing, если:
+        // 1. Мы были в "мирном" состоянии (Idle, Wandering, Fleeing).
+        // 2. Это forceAggro (принудительная смена состояния на агрессивное).
+        // 3. Мы были в Attacking, но теперь цель другая.
+        if (currentStateObject.GetStateType() == AIState.Idle || 
+            currentStateObject.GetStateType() == AIState.Wandering || 
+            currentStateObject.GetStateType() == AIState.Fleeing || 
+            forceAggro || 
+            (currentStateObject.GetStateType() == AIState.Attacking && currentThreatInternal != previousThreat) ) 
+        {
+            // Debug.Log($"BecomeHostile: Changing state to Chasing. Old state: {currentStateObject.GetStateType()}");
+            ChangeState(AIState.Chasing);
+        }
+    }
+    // else { Debug.Log($"BecomeHostile: Cannot become hostile. Alignment: {currentAlignment}, canBecomeHostile: {canBecomeHostileOnAttack}"); }
+}
+
+public void ForceFlee(Transform threatToFleeFrom)
+{
+    if (currentStateObject != null && currentStateObject.GetStateType() == AIState.Dead) return;
+    
+    // Debug.Log($"ForceFlee called. Threat: {threatToFleeFrom?.name}. CanFlee: {canFlee}");
+
+    if (!canFlee)
+    {
+        if (currentAlignment != Alignment.Hostile && PlayerPartyTransformRef != null && threatToFleeFrom == PlayerPartyTransformRef)
+        {
+            // Debug.Log($"ForceFlee: Cannot flee, becoming hostile instead.");
+            BecomeHostileTowards(threatToFleeFrom, true); 
+        }
+        return;
+    }
+    
+    string message = $"{gameObject.name} напуган {threatToFleeFrom.name} и убегает!";
+    FeedbackManagerRef?.ShowFeedbackMessage(message);
+    // Debug.Log(message);
+    
+    SetCurrentThreat(threatToFleeFrom); 
+    ChangeState(AIState.Fleeing);
+}
+
+    public void ChangeState(AIState newStateKey)
+    {
+        if (currentStateObject != null && currentStateObject.GetStateType() == AIState.Dead) return; // Нельзя сменить состояние, если мертвы
+
+        if (availableStates.TryGetValue(newStateKey, out IAIState newStateObject))
+        {
+            // Убрал: if (currentStateObject == newStateObject && newStateKey != AIState.Idle) return;
+            // Иногда нужно "перезайти" в состояние, особенно в Idle для сброса таймеров или логики.
+            // Если нужно строгое предотвращение повторного входа, можно вернуть проверку,
+            // но убедиться, что она не мешает нужным переходам (например, принудительный сброс в Idle).
+        
+            currentStateObject?.ExitState(this);
+            currentStateObject = newStateObject;
+            currentStateObject.EnterState(this);
+            currentStateDebugView = newStateKey; // Для отладки
+        }
+        else
+        {
+            Debug.LogWarning($"AIController ({gameObject.name}): Attempted to change to an unknown state: {newStateKey}");
+        }
+    }
+    
+    // Методы, используемые состояниями для доступа к параметрам/логике AIController
+    public float GetNextWanderTime() => nextWanderTimeInternal;
+    public void ResetWanderTimer() { nextWanderTimeInternal = Time.time + Random.Range(minWanderWaitTime, maxWanderWaitTime); }
+    public bool TrySetNewWanderDestination()
     {
         Vector3 randomDirection = Random.insideUnitSphere * wanderRadius;
         randomDirection += transform.position;
         UnityEngine.AI.NavMeshHit navHit; 
         if (UnityEngine.AI.NavMesh.SamplePosition(randomDirection, out navHit, wanderRadius, UnityEngine.AI.NavMesh.AllAreas))
         {
-            wanderDestination = navHit.position;
-            isWanderingToDestination = true;
+            currentWanderDestinationInternal = navHit.position;
+            isWanderingToActiveDestinationInternal = true;
+            return true;
         }
         else 
         {
             if (UnityEngine.AI.NavMesh.SamplePosition(transform.position + (Random.insideUnitSphere * 2f), out navHit, 2f, UnityEngine.AI.NavMesh.AllAreas))
             {
-                wanderDestination = navHit.position;
-                isWanderingToDestination = true;
-            }
-            else { isWanderingToDestination = false; }
-        }
-    }
-
-    private void UpdateWanderingState()
-    {
-        if (currentAlignment == Alignment.Hostile && currentThreatInternal != null)
-        {
-            currentState = AIState.Chasing;
-            isWanderingToDestination = false;
-            movement.StopMovement(); 
-            return;
-        }
-
-        if (!movement.IsOnNavMesh() || !isWanderingToDestination)
-        {
-            currentState = AIState.Idle;
-            nextWanderTime = Time.time + Random.Range(minWanderWaitTime, maxWanderWaitTime);
-            return;
-        }
-        
-        movement.MoveTo(wanderDestination);
-
-        if (movement.HasReachedDestination)
-        {
-            currentState = AIState.Idle;
-            isWanderingToDestination = false;
-            nextWanderTime = Time.time + Random.Range(minWanderWaitTime, maxWanderWaitTime);
-        }
-    }
-
-    private void UpdateChasingState()
-    {
-        if (currentThreatInternal == null) { currentState = AIState.Idle; isWanderingToDestination = false; return; }
-        if (!movement.IsOnNavMesh()) { currentState = AIState.Idle; isWanderingToDestination = false; return; }
-
-        movement.Follow(currentThreatInternal);
-        movement.StoppingDistance = attackStateSwitchRadius * 0.85f; 
-
-        float distanceToThreat = Vector3.Distance(transform.position, currentThreatInternal.position);
-        if (distanceToThreat <= attackStateSwitchRadius) 
-        {
-            currentState = AIState.Attacking;
-            movement.StopMovement(false); 
-        }
-    }
-
-    private void UpdateAttackingState()
-    {
-        if (currentThreatInternal == null) { currentState = AIState.Idle; isWanderingToDestination = false; return; }
-        if (!movement.IsOnNavMesh() && movement.enabled) { movement.StopMovement(false); return; } 
-
-        FaceTarget(currentThreatInternal);
-        float distanceToThreat = Vector3.Distance(transform.position, currentThreatInternal.position);
-
-        if (distanceToThreat > attackStateSwitchRadius + 0.2f) 
-        {
-            currentState = AIState.Chasing;
-            return;
-        }
-        
-        if (movement.IsMoving) { movement.StopMovement(false); }
-
-        if (combat.IsReadyToAttack)
-        {
-            if (!combat.PerformAttack(currentThreatInternal))
-            {
-                // Атака не удалась (цель мертва/невалидна), сбрасываем угрозу
-                currentThreatInternal = null; 
-                currentState = AIState.Idle;
+                currentWanderDestinationInternal = navHit.position;
+                isWanderingToActiveDestinationInternal = true;
+                return true;
             }
         }
+        isWanderingToActiveDestinationInternal = false;
+        return false;
     }
-    
-    private void UpdateFleeingState()    
+    public Vector3 GetCurrentWanderDestination() => currentWanderDestinationInternal;
+    public bool IsWanderingToActiveDestination() => isWanderingToActiveDestinationInternal;
+    public void ResetWanderingState() { 
+        isWanderingToActiveDestinationInternal = false; 
+        ResetWanderTimer(); 
+    }
+
+    public void ClearCurrentThreat()
     {
-        // currentThreatInternal должен быть установлен перед входом в это состояние (через ForceFlee или CheckFleeCondition)
-        if (currentThreatInternal == null) { currentState = AIState.Idle; isWanderingToDestination = false; return; }
-        if (!movement.IsOnNavMesh()) { currentState = AIState.Idle; isWanderingToDestination = false; return; }
-
-        float distanceToThreat = Vector3.Distance(transform.position, currentThreatInternal.position);
-        if (distanceToThreat > fleeDistance)
-        {
-            currentState = AIState.Idle;
-            isWanderingToDestination = false;
-            nextWanderTime = Time.time + Random.Range(minWanderWaitTime, maxWanderWaitTime);
-            movement.StopMovement(); 
-            // currentThreatInternal = null; // Опционально: "забыть" угрозу
-            return;
-        }
-
-        Vector3 directionFromThreat = (transform.position - currentThreatInternal.position).normalized;
-        Vector3 fleeDestination = transform.position + directionFromThreat * 5f;
-
-        UnityEngine.AI.NavMeshHit hit; 
-        if (UnityEngine.AI.NavMesh.SamplePosition(fleeDestination, out hit, 10f, UnityEngine.AI.NavMesh.AllAreas))
-        {
-            movement.MoveTo(hit.position);
-        }
-        else 
-        {
-            Vector3 randomDir = Random.insideUnitSphere * 5f;
-            randomDir += transform.position;
-            if (UnityEngine.AI.NavMesh.SamplePosition(randomDir, out hit, 10f, UnityEngine.AI.NavMesh.AllAreas)) { movement.MoveTo(hit.position); }
-            else { currentState = AIState.Idle; isWanderingToDestination = false; nextWanderTime = Time.time + Random.Range(minWanderWaitTime, maxWanderWaitTime); movement.StopMovement(); }
-        }
+        currentThreatInternal = null;
     }
-    
+
+    public void SetCurrentThreat(Transform threat)
+    {
+        currentThreatInternal = threat;
+    }
+// В AIController.cs
+public void FaceTarget(Transform target) 
+{
+    if (target == null || Movement == null || !Movement.IsOnNavMesh()) return; 
+    Vector3 direction = (target.position - transform.position).normalized;
+    if (direction != Vector3.zero)
+    {
+        Quaternion lookRotation = Quaternion.LookRotation(new Vector3(direction.x, 0, direction.z));
+        // Для более плавного поворота можно использовать Slerp, но это потребует управления скоростью поворота
+        //transform.rotation = Quaternion.Slerp(transform.rotation, lookRotation, Time.deltaTime * Movement.GetSpeed() * 0.5f); // Пример плавного поворота
+        // Или мгновенный:
+        transform.rotation = lookRotation;
+    }
+}
+
     private void CheckFleeConditionOnHealthChange(int currentHp, int maxHp)
     {
-        if (!canFlee || currentState == AIState.Dead || currentState == AIState.Fleeing || myStats == null) return;
-        if ((float)currentHp / myStats.maxHealth <= fleeHealthThreshold)
+        if (!canFlee || (currentStateObject != null && currentStateObject.GetStateType() == AIState.Dead) || 
+            (currentStateObject != null && currentStateObject.GetStateType() == AIState.Fleeing) || MyStats == null) return;
+        
+        if ((float)currentHp / MyStats.maxHealth <= fleeHealthThreshold)
         {
             // Убегаем от текущей активной угрозы, если она есть.
-            // Если нет, но здоровье низкое, то при следующей атаке/обнаружении угрозы
-            // currentThreatInternal будет установлен, и этот метод (или fleesOnSight) сработает.
             if (currentThreatInternal != null) { ForceFlee(currentThreatInternal); }
-            // Если нет currentThreatInternal, но игрок виден и является причиной низкого здоровья, можно его назначить угрозой для бегства
-            else if (perception.PlayerTarget != null && perception.IsTargetInRadius(perception.PlayerTarget, perception.sightRadius))
+            // Если нет currentThreatInternal, но игрок виден и является причиной низкого здоровья, назначаем его угрозой для бегства.
+            else if (Perception.PlayerTarget != null && Perception.IsTargetInRadius(Perception.PlayerTarget, Perception.sightRadius))
             {
-                 ForceFlee(perception.PlayerTarget);
+                 ForceFlee(Perception.PlayerTarget);
             }
-        }
-    }
-    
-    public void BecomeHostileTowards(Transform threatSource, bool forceAggro = false)
-    {
-        if (currentAlignment == Alignment.Hostile && currentThreatInternal == threatSource && !forceAggro) return; 
-        
-        bool canActuallyBecomeHostile = (currentAlignment == Alignment.Neutral) || 
-                                        (currentAlignment == Alignment.Friendly && canBecomeHostileOnAttack) ||
-                                        forceAggro;
-        if (canActuallyBecomeHostile)
-        {
-            bool wasAlreadyHostileToThis = (currentAlignment == Alignment.Hostile && currentThreatInternal == threatSource);
-            currentAlignment = Alignment.Hostile;
-            currentThreatInternal = threatSource; // Устанавливаем новую угрозу
-
-            if(!wasAlreadyHostileToThis || forceAggro) // Показываем сообщение, если это новая агрессия или форсированная
-            {
-                string message = $"{gameObject.name} теперь враждебен к {threatSource.name}!";
-                if (feedbackManager != null) { feedbackManager.ShowFeedbackMessage(message); }
-                else { playerPartyTransformRef?.GetComponentInChildren<FeedbackManager>()?.ShowFeedbackMessage(message); }
-            }
-            
-            // Переходим в Chasing, если не были уже в бою с этой целью или если это форсированная агрессия
-            if (currentState != AIState.Attacking || currentThreatInternal != threatSource || forceAggro)
-            {
-                 if (currentState == AIState.Idle || currentState == AIState.Wandering || currentState == AIState.Fleeing || forceAggro)
-                 {
-                    currentState = AIState.Chasing;
-                    isWanderingToDestination = false;
-                 }
-            }
-        }
-    }
-    
-    public void ForceFlee(Transform threatToFleeFrom)
-    {
-        if (currentState == AIState.Dead) return;
-        if (!canFlee)
-        {
-            if (currentAlignment != Alignment.Hostile && playerPartyTransformRef != null && threatToFleeFrom == playerPartyTransformRef)
-            { BecomeHostileTowards(threatToFleeFrom, true); }
-            return;
-        }
-        
-        string message = $"{gameObject.name} напуган {threatToFleeFrom.name} и убегает!";
-        if (feedbackManager != null) { feedbackManager.ShowFeedbackMessage(message); }
-        else { playerPartyTransformRef?.GetComponentInChildren<FeedbackManager>()?.ShowFeedbackMessage(message); }
-        
-        currentThreatInternal = threatToFleeFrom; // Устанавливаем угрозу, от которой бежим
-        currentState = AIState.Fleeing;
-        isWanderingToDestination = false;
-    }
-    
-    private void FaceTarget(Transform target)
-    {
-        if (target == null) return;
-        Vector3 direction = (target.position - transform.position).normalized;
-        if (direction != Vector3.zero)
-        {
-            Quaternion lookRotation = Quaternion.LookRotation(new Vector3(direction.x, 0, direction.z));
-            transform.rotation = lookRotation; // Consider slerping for smoother rotation
         }
     }
 
+    
+    public void ClearCurrentThreatAndSearch() // Новый метод для удобства
+    {
+        currentThreatInternal = null;
+    }
     private void HandleDeath() 
     {
-        if (currentState == AIState.Dead) return;
-        currentState = AIState.Dead;
-        isWanderingToDestination = false;
+        // Вызываем ExitState для текущего состояния, если оно было
+        currentStateObject?.ExitState(this);
+        currentStateObject = null; // Устанавливаем в null, чтобы Update не вызывался
 
-        movement.ResetAndStopAgent(); 
-        movement.DisableAgent();      
+        currentStateDebugView = AIState.Dead; // Для отладки
+
+        Movement.ResetAndStopAgent(); 
+        Movement.DisableAgent();      
 
         GrantExperienceToParty();
         SetupLootableCorpse();
+        
+        // Отключаем сам AIController, чтобы он больше не выполнял Update
+        // enabled = false; // Опционально, если есть другие компоненты, которые могут на него ссылаться
     }
-
     private void GrantExperienceToParty() 
     {
-        if (partyManager == null || experienceReward <= 0) return;
-        List<CharacterStats> livingMembers = partyManager.partyMembers.Where(member => member != null && !member.IsDead).ToList();
+        if (PartyManagerRef == null || experienceReward <= 0) return;
+        List<CharacterStats> livingMembers = PartyManagerRef.partyMembers.Where(member => member != null && !member.IsDead).ToList();
         if (livingMembers.Count > 0)
         {
             int xpPerMember = Mathf.Max(1, experienceReward / livingMembers.Count);
@@ -417,20 +518,20 @@ public class AIController : MonoBehaviour
 
     void OnDestroy() 
     {
-        if (myStats != null)
+        if (MyStats != null)
         {
-            myStats.onDied -= HandleDeath;
-            myStats.onHealthChanged.RemoveListener(CheckFleeConditionOnHealthChange);
+            MyStats.onDied -= HandleDeath;
+            MyStats.onHealthChanged.RemoveListener(CheckFleeConditionOnHealthChange);
         }
     }
     
     void OnDrawGizmosSelected()
     {
         // Параметры обнаружения и состояния из AIPerception, если он уже получен
-        if (perception != null)
+        if (Perception != null)
         {
-            Gizmos.color = Color.yellow; Gizmos.DrawWireSphere(transform.position, perception.aggroRadiusPlayer);
-            if (fleesOnSightOfPlayer) { Gizmos.color = Color.cyan; Gizmos.DrawWireSphere(transform.position, perception.fleeOnSightRadiusPlayer); }
+            Gizmos.color = Color.yellow; Gizmos.DrawWireSphere(transform.position, Perception.engageRadius);
+            if (fleesOnSightOfPlayer) { Gizmos.color = Color.cyan; Gizmos.DrawWireSphere(transform.position, Perception.fleeOnSightRadius); }
         }
         else // Рисуем значения по умолчанию, если perception еще не инициализирован (например, в эдиторе до Play)
         {

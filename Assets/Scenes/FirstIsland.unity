@@ -3238,6 +3238,10 @@ PrefabInstance:
       propertyPath: m_Materials.Array.data[0]
       value: 
       objectReference: {fileID: 2100000, guid: 6440a4fabadf0b2418799a6034f7c41e, type: 2}
+    - target: {fileID: 4018121502344025493, guid: 65c4f5c0d57709349bb6dfa7a10f80d2, type: 3}
+      propertyPath: visionConeAngle
+      value: 360
+      objectReference: {fileID: 0}
     - target: {fileID: 5968593128406014439, guid: 65c4f5c0d57709349bb6dfa7a10f80d2, type: 3}
       propertyPath: m_Direction
       value: 1
@@ -3248,15 +3252,15 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 6181609087075977617, guid: 65c4f5c0d57709349bb6dfa7a10f80d2, type: 3}
       propertyPath: m_LocalPosition.x
-      value: 305.84
+      value: 305.2
       objectReference: {fileID: 0}
     - target: {fileID: 6181609087075977617, guid: 65c4f5c0d57709349bb6dfa7a10f80d2, type: 3}
       propertyPath: m_LocalPosition.y
-      value: 9.5
+      value: 9.89
       objectReference: {fileID: 0}
     - target: {fileID: 6181609087075977617, guid: 65c4f5c0d57709349bb6dfa7a10f80d2, type: 3}
       propertyPath: m_LocalPosition.z
-      value: -189.35
+      value: -190.53
       objectReference: {fileID: 0}
     - target: {fileID: 6181609087075977617, guid: 65c4f5c0d57709349bb6dfa7a10f80d2, type: 3}
       propertyPath: m_LocalRotation.w

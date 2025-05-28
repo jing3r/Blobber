@@ -10,10 +10,11 @@ public class AIPerception : MonoBehaviour
     public LayerMask obstacleLayers;  // Слои, которые блокируют зрение
 
     [Header("Aggro Parameters")]
-    public float aggroRadiusPlayer = 10f; // Радиус агрессии конкретно на игрока
+    public float engageRadius = 10f;
+    public float disengageRadius = 15f;
 
     [Header("Flee on Sight Parameters")]
-    public float fleeOnSightRadiusPlayer = 12f; // Радиус для бегства при виде игрока
+    public float fleeOnSightRadius = 12f; // Радиус для бегства при виде игрока
 
     // Обнаруженные сущности (могут обновляться не каждый кадр для оптимизации)
     public Transform PlayerTarget { get; private set; }
@@ -57,61 +58,59 @@ public class AIPerception : MonoBehaviour
         }
     }
 
-    private void UpdatePerception()
+private void UpdatePerception()
+{
+    // Сначала сбрасываем цели этого кадра
+    PlayerTarget = null; 
+    // PrimaryHostileThreat сбрасывать здесь не нужно, AIController сам решит, когда его "забыть"
+    // или он будет перезаписан, если найдется новая приоритетная цель.
+    // Мы можем иметь временную переменную для "увиденной в этом кадре" приоритетной цели.
+    Transform currentlyPerceivedPrimaryThreat = null;
+
+
+    // 1. Обнаружение игрока (с учетом конуса, LOS и sightRadius)
+    if (playerPartyTransformInternal != null)
     {
-        PlayerTarget = null;
-        PrimaryHostileThreat = null;
-        // VisibleTargets.Clear();
-
-        // Обнаружение игрока
-        if (playerPartyTransformInternal != null)
+        if (IsTargetInRadius(playerPartyTransformInternal, sightRadius) && 
+            IsTargetInVisionCone(playerPartyTransformInternal) && // Для первоначального "замечания"
+            HasLineOfSightToTarget(playerPartyTransformInternal, true)) // true - для строгого LOS без учета "памяти"
         {
-            if (IsTargetInRadius(playerPartyTransformInternal, sightRadius) && IsTargetInVisionCone(playerPartyTransformInternal) && HasLineOfSightToTarget(playerPartyTransformInternal))
-            {
-                PlayerTarget = playerPartyTransformInternal;
-            }
+            PlayerTarget = playerPartyTransformInternal; // Игрок замечен в этом кадре
         }
-
-        // Обнаружение основной враждебной угрозы (пока фокусируемся на игроке, если он видим и AI враждебен)
-        // В будущем здесь будет более сложная логика с фракциями и другими NPC
-        if (aiController.currentAlignment == AIController.Alignment.Hostile && PlayerTarget != null)
-        {
-             float distanceToPlayer = Vector3.Distance(transform.position, PlayerTarget.position);
-             if (distanceToPlayer <= aggroRadiusPlayer) // Используем aggroRadiusPlayer для определения угрозы
-             {
-                PrimaryHostileThreat = PlayerTarget;
-             }
-        }
-        // Если AI не враждебен, но игрок слишком близко в aggroRadius, он может стать угрозой, если AI станет враждебным
-        else if (PlayerTarget != null && Vector3.Distance(transform.position, PlayerTarget.position) <= aggroRadiusPlayer)
-        {
-            // Не устанавливаем PrimaryHostileThreat, но AIController может использовать PlayerTarget
-            // для решения о смене currentAlignment на Hostile.
-        }
-
-
-        // Пример для поиска других целей (можно расширить)
-        // Collider[] targetsInViewRadius = Physics.OverlapSphere(transform.position, sightRadius, targetLayers);
-        // foreach (Collider targetCollider in targetsInViewRadius)
-        // {
-        //     if (targetCollider.transform == transform || targetCollider.transform == playerPartyTransformInternal) continue; // Skip self and player if already handled
-
-        //     if (IsTargetInVisionCone(targetCollider.transform) && HasLineOfSightToTarget(targetCollider.transform))
-        //     {
-        //         VisibleTargets.Add(targetCollider.transform);
-        //         // Логика определения PrimaryHostileThreat среди NPC
-        //     }
-        // }
     }
 
-    public bool IsPlayerVisibleAndInAggroRadius()
+    // 2. Определение основной враждебной угрозы (то, что AI видит ПРЯМО СЕЙЧАС как самую опасную цель)
+    // Это может быть игрок или другой NPC. Пока фокусируемся на игроке.
+    if (PlayerTarget != null) // Если игрок вообще замечен
     {
-        return PlayerTarget != null && Vector3.Distance(transform.position, PlayerTarget.position) <= aggroRadiusPlayer;
+        // Если AI враждебен ИЛИ игрок в engageRadius (даже если AI еще не враждебен, он может сагриться)
+        // Игрок становится кандидатом в PrimaryHostileThreat, если он в engageRadius.
+        if (IsTargetInRadius(PlayerTarget, engageRadius)) // Используем engageRadius для определения агрессии
+        {
+             // Если AI уже враждебен к игроку, или просто видит игрока в engageRadius,
+             // то игрок - это текущая воспринимаемая угроза.
+             currentlyPerceivedPrimaryThreat = PlayerTarget;
+        }
+    }
+    // TODO: Добавить логику для обнаружения других NPC как PrimaryHostileThreat на основе фракций и т.д.
+
+    // Обновляем публичное свойство PrimaryHostileThreat
+    // Это то, что AIController будет использовать для принятия решений об агрессии
+    PrimaryHostileThreat = currentlyPerceivedPrimaryThreat; 
+
+    // VisibleTargets.Clear();
+    // ... (логика для других целей, если нужна) ...
+}
+
+
+    public bool IsPlayerVisibleAndInEngageRadius()
+    {
+        return PlayerTarget != null && Vector3.Distance(transform.position, PlayerTarget.position) <= engageRadius;
     }
     
     public bool IsPlayerVisibleAndInFleeRadius()
     {
-         return PlayerTarget != null && Vector3.Distance(transform.position, PlayerTarget.position) <= fleeOnSightRadiusPlayer;
+         return PlayerTarget != null && Vector3.Distance(transform.position, PlayerTarget.position) <= fleeOnSightRadius;
     }
 
     public bool IsTargetInRadius(Transform target, float radius)
@@ -129,31 +128,71 @@ public class AIPerception : MonoBehaviour
         if (directionToTarget == Vector3.zero) return true; // Если цель в той же точке, считаем ее видимой в конусе
         return Vector3.Angle(transform.forward, directionToTarget) < visionConeAngle / 2;
     }
-
-    public bool HasLineOfSightToTarget(Transform target)
+    public Transform GetPrimaryHostileThreatAggro()
+{
+    // Этот метод должен возвращать цель, на которую AI должен сагриться,
+    // если она в engageRadius и есть LOS.
+    // PrimaryHostileThreat уже должен быть установлен корректно в UpdatePerception.
+    if (PrimaryHostileThreat != null && 
+        IsTargetInRadius(PrimaryHostileThreat, engageRadius) && 
+        HasLineOfSightToTarget(PrimaryHostileThreat, true)) // Снова проверяем LOS на момент запроса
     {
-        if (target == null) return false;
-        
-        Vector3 rayStartPoint = transform.position + Vector3.up * 0.5f; 
-        Vector3 targetPoint = target.position + Vector3.up * 0.5f; 
-
-        CharacterController cc = target.GetComponent<CharacterController>();
-        if (cc != null) targetPoint = target.position + cc.center;
-        else {
-            Collider col = target.GetComponent<Collider>();
-            if (col != null) targetPoint = col.bounds.center;
-        }
-        
-        // Проверка, что точки не совпадают, чтобы избежать ошибки Linecast
-        if (rayStartPoint == targetPoint) return true; // Если точки совпадают, считаем, что есть прямая видимость
-
-        RaycastHit hit;
-        if (Physics.Linecast(rayStartPoint, targetPoint, out hit, obstacleLayers))
-        {
-            return hit.transform == target || IsChildOrSame(hit.transform, target);
-        }
-        return true; 
+        return PrimaryHostileThreat;
     }
+    return null;
+}
+// Новый метод для AIController (для бегства при виде)
+    public bool IsPlayerSpottedForFleeing()
+    {
+        // PlayerTarget устанавливается в UpdatePerception с учетом конуса, LOS и sightRadius.
+        // Здесь мы просто проверяем, что PlayerTarget установлен и находится в fleeOnSightRadius.
+        return PlayerTarget != null && IsTargetInRadius(PlayerTarget, fleeOnSightRadius);
+    }
+
+
+// HasLineOfSightToTarget МОЖЕТ БЫТЬ ПЕРЕГРУЖЕН для разных нужд
+public bool HasLineOfSightToTarget(Transform target, bool strictLOSCheck = false)
+{
+    if (target == null) return false;
+    
+    // Если не строгая проверка, и у AI есть "память" или он уже сфокусирован,
+    // то можно вернуть true, даже если LOS был потерян на мгновение.
+    // Но для AIPerception, который предоставляет "сырые" данные, лучше всегда делать строгую проверку.
+    // AIController будет решать, как использовать эту информацию с учетом памяти.
+
+    Vector3 rayStartPoint = transform.position + Vector3.up * 0.5f; 
+    Vector3 targetPoint = target.position + Vector3.up * 0.5f; 
+
+    CharacterController cc = target.GetComponent<CharacterController>();
+    Collider col = target.GetComponent<Collider>(); // Получаем коллайдер один раз
+
+    if (cc != null) targetPoint = target.position + cc.center;
+    else if (col != null) targetPoint = col.bounds.center;
+    
+    if (rayStartPoint == targetPoint) return true;
+
+    RaycastHit hit;
+    // Debug.DrawLine(rayStartPoint, targetPoint, Color.magenta, 0.1f); // Для отладки LOS
+    if (Physics.Linecast(rayStartPoint, targetPoint, out hit, obstacleLayers))
+    {
+        // Проверяем, попали ли мы в саму цель или ее дочерний объект (например, часть модели)
+        // или в другой коллайдер, принадлежащий тому же корневому объекту цели.
+        if (hit.transform == target || hit.transform.IsChildOf(target)) return true;
+        
+        // Если у цели несколько коллайдеров, но мы попали не в тот, что на основном transform,
+        // а в другой коллайдер того же объекта, это тоже считается LOS.
+        if (col != null && hit.collider == col) return true; 
+        
+        // Более сложная проверка, если у цели сложная иерархия с коллайдерами
+        // CharacterStats targetRootStats = target.GetComponentInParent<CharacterStats>(); // Или другая корневая сущность
+        // CharacterStats hitRootStats = hit.transform.GetComponentInParent<CharacterStats>();
+        // if (targetRootStats != null && hitRootStats == targetRootStats) return true;
+
+        // Debug.Log($"LOS to {target.name} blocked by {hit.collider.name}");
+        return false; // LOS заблокирован чем-то другим
+    }
+    return true; // Препятствий нет
+}
 
     private bool IsChildOrSame(Transform hitTransform, Transform targetTransform)
     {
