@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 using System.Linq;
+using System.Collections.Generic;
 
 public class PlayerGlobalActions : MonoBehaviour
 {
@@ -13,6 +14,10 @@ public class PlayerGlobalActions : MonoBehaviour
     [Range(0, 100)] public int basePlayerHitChance = 70;
     [Range(0, 100)] public int minPlayerHitChance = 10;
     [Range(0, 100)] public int maxPlayerHitChance = 95;
+
+    [Header("Rest Settings")]
+    public float enemyCheckRadiusForRest = 15f; // Радиус проверки на врагов перед отдыхом
+    public LayerMask characterLayerMaskForRest;    // Слой, на котором находятся враги (если не используем Perception)
 
     private bool isCursorFree = false;
     public bool IsCursorFree => isCursorFree;
@@ -101,7 +106,7 @@ public class PlayerGlobalActions : MonoBehaviour
         if (Random.Range(0, 100) < hitChance)
         {
             int damageToDeal = attacker.CalculatedDamage;
-            targetStats.TakeDamage(damageToDeal);
+            targetStats.TakeDamage(damageToDeal, transform);
             feedbackMessage = $"{attacker.gameObject.name} попадает по {targetStats.gameObject.name} ({damageToDeal} урона).";
         }
         else
@@ -167,7 +172,76 @@ public class PlayerGlobalActions : MonoBehaviour
         
         if (!actionTaken) { feedbackManager?.ShowFeedbackMessage("Здесь нечего делать."); }
     }
+    public void OnRest(InputAction.CallbackContext context)
+    {
+        if (context.performed)
+        {
+            AttemptToRest();
+        }
+    }
 
+    private void AttemptToRest()
+    {
+        bool enemiesNearby = false;
+        // Ищем ВСЕХ персонажей в радиусе на указанном слое
+        Collider[] nearbyColliders = Physics.OverlapSphere(transform.position, enemyCheckRadiusForRest, characterLayerMaskForRest);
+        
+        // Debug.Log($"AttemptToRest: Found {nearbyColliders.Length} colliders on character layer.");
+
+        foreach (Collider col in nearbyColliders)
+        {
+            // Исключаем самих членов партии (или весь объект Player, если коллайдер на нем)
+            // Проверяем, что коллайдер не принадлежит объекту, на котором висит этот скрипт, или его дочерним объектам.
+            if (col.transform.IsChildOf(transform) || col.transform == transform)
+            {
+                // Debug.Log($"AttemptToRest: Skipping self/party member: {col.gameObject.name}");
+                continue;
+            }
+
+            AIController nearbyAI = col.GetComponent<AIController>();
+            if (nearbyAI != null) // Если это NPC с AIController
+            {
+                // Debug.Log($"AttemptToRest: Checking NPC: {col.gameObject.name}, Alignment: {nearbyAI.currentAlignment}, IsDead: {nearbyAI.MyStats?.IsDead}");
+                if (nearbyAI.currentAlignment == AIController.Alignment.Hostile && nearbyAI.MyStats != null && !nearbyAI.MyStats.IsDead)
+                {
+                    enemiesNearby = true;
+                    // Debug.Log($"AttemptToRest: Hostile enemy {col.gameObject.name} found nearby!");
+                    break; 
+                }
+            }
+            // Если у объекта нет AIController, он не считается враждебным NPC для целей отдыха
+            // (это могут быть мирные NPC без AIController или другие интерактивные объекты на слое "Characters")
+        }
+
+        if (enemiesNearby)
+        {
+            feedbackManager?.ShowFeedbackMessage("Нельзя отдыхать, враги поблизости!");
+            return;
+        }
+
+        if (partyManager != null)
+        {
+            foreach (CharacterStats member in partyManager.partyMembers)
+            {
+                if (member != null) // Проверяем, что слот не пуст
+                {
+                    if (!member.IsDead) 
+                    {
+                        member.Heal(member.maxHealth); 
+                    }
+                    // Мертвые пока не воскрешаются от обычного отдыха
+
+                    CharacterAbilities abilities = member.GetComponent<CharacterAbilities>();
+                    if (abilities != null)
+                    {
+                        abilities.RestoreAllAbilityCharges();
+                    }
+                }
+            }
+            feedbackManager?.ShowFeedbackMessage("Отряд отдохнул и восстановил силы.");
+            // Debug.Log("PlayerGlobalActions: Party has rested. Health and ability charges restored.");
+        }
+    }
     private bool PerformRaycast(out RaycastHit hitInfo, float maxDistance, LayerMask layerMask)
     {
         Ray ray;
@@ -266,5 +340,4 @@ public class PlayerGlobalActions : MonoBehaviour
     public void OnOpenInventory(InputAction.CallbackContext context) { /* ... */ }
     public void OnOpenMap(InputAction.CallbackContext context) { /* ... */ }
     public void OnOpenMenu(InputAction.CallbackContext context) { /* ... */ }
-    public void OnRest(InputAction.CallbackContext context) { /* ... */ }
 }

@@ -1,0 +1,50 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5c5d038270238824e898faceeb3d4987, type: 3}
+  m_Name: Flashbang
+  m_EditorClassIdentifier: 
+  abilityName: Flashbang
+  description: Creates a disorienting flash, potentially dazing nearby hostiles and
+    neutrals.
+  icon: {fileID: 0}
+  targetType: 3
+  range: 0
+  areaOfEffectRadius: 7
+  affectsSelfInAoe: 0
+  affectsPartyMembersInAoe: 0
+  affectsAlliesInAoe: 0
+  affectsNeutralsInAoe: 1
+  affectsEnemiesInAoe: 1
+  cooldown: 1
+  maxCharges: 3
+  castTime: 0
+  usesContest: 1
+  attackerAttribute1: 1
+  attackerAttribute2: 3
+  attackerAttribute3: 2
+  defenderAttribute1: 1
+  defenderAttribute2: 2
+  defenderAttribute3: 0
+  effectsToApply:
+  - rid: 385089688418648064
+  castSound: {fileID: 0}
+  startVFXPrefab: {fileID: 0}
+  targetVFXPrefab: {fileID: 0}
+  areaVFXPrefab: {fileID: 0}
+  references:
+    version: 2
+    RefIds:
+    - rid: 385089688418648064
+      type: {class: ApplyStatusEffectData, ns: , asm: Assembly-CSharp}
+      data:
+        statusEffectToApply: {fileID: 11400000, guid: 3398a68aef4e76f49b96430dd5723484, type: 2}
+        applyToAllInAreaIfAoE: 1

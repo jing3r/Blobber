@@ -1,0 +1,37 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b9c3c3da4e356d94697a925cbef468a3, type: 3}
+  m_Name: Stunned
+  m_EditorClassIdentifier: 
+  statusID: Stunned
+  statusName: Stunned
+  description: Briefly incapacitates the target and reduces their Agility and Mind.
+  icon: {fileID: 0}
+  isBuff: 0
+  durationAttribute: 0
+  durationAttributeSource: 0
+  durationMultiplier: 0.5
+  fixedDuration: 0
+  restoreCondition: 0
+  canStack: 0
+  tickInterval: 0
+  baseDamagePerTick: 0
+  tickEffectScalingAttribute: 5
+  tickEffectScaleFactor: 0
+  attributeModifiers:
+  - targetAttribute: 1
+    modifierValue: -2
+    modifierRestoreCondition: 0
+  - targetAttribute: 3
+    modifierValue: -1
+    modifierRestoreCondition: 0
+  statusVFXPrefab: {fileID: 0}

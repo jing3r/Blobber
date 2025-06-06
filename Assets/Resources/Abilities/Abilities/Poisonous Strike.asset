@@ -1,0 +1,63 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5c5d038270238824e898faceeb3d4987, type: 3}
+  m_Name: Poisonous Strike
+  m_EditorClassIdentifier: 
+  abilityName: Poisonous Strike
+  description: An attack that attempts to poison the target.
+  icon: {fileID: 0}
+  targetType: 1
+  range: 10
+  areaOfEffectRadius: 0
+  affectsSelfInAoe: 0
+  affectsPartyMembersInAoe: 0
+  affectsAlliesInAoe: 0
+  affectsNeutralsInAoe: 0
+  affectsEnemiesInAoe: 0
+  cooldown: 1
+  maxCharges: 3
+  castTime: 0
+  usesContest: 1
+  attackerAttribute1: 1
+  attackerAttribute2: 3
+  attackerAttribute3: 0
+  defenderAttribute1: 1
+  defenderAttribute2: 0
+  defenderAttribute3: 2
+  effectsToApply:
+  - rid: 385089688418648074
+  - rid: 385089688418648075
+  - rid: 385089688418648076
+  castSound: {fileID: 0}
+  startVFXPrefab: {fileID: 0}
+  targetVFXPrefab: {fileID: 0}
+  areaVFXPrefab: {fileID: 0}
+  references:
+    version: 2
+    RefIds:
+    - rid: 385089688418648074
+      type: {class: DamageEffectData, ns: , asm: Assembly-CSharp}
+      data:
+        baseDamageAmount: 5
+        scalingAttribute: 1
+        scaleFactor: 1
+        applyToAllInAreaIfAoE: 0
+    - rid: 385089688418648075
+      type: {class: ApplyStatusEffectData, ns: , asm: Assembly-CSharp}
+      data:
+        statusEffectToApply: {fileID: 11400000, guid: 3fde51626a4030b46b4d67ad597b705b, type: 2}
+        applyToAllInAreaIfAoE: 0
+    - rid: 385089688418648076
+      type: {class: ApplyStatusEffectData, ns: , asm: Assembly-CSharp}
+      data:
+        statusEffectToApply: {fileID: 11400000, guid: 226e9a3bffdbe714682040a0c05609dc, type: 2}
+        applyToAllInAreaIfAoE: 0
