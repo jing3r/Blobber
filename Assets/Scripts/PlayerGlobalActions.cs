@@ -25,6 +25,7 @@ public class PlayerGlobalActions : MonoBehaviour
     private Transform cameraTransform;
     private PartyManager partyManager;
     private FeedbackManager feedbackManager;
+    private TargetingSystem targetingSystem;
 
     void Awake()
     {
@@ -39,6 +40,8 @@ public class PlayerGlobalActions : MonoBehaviour
             feedbackManager = GetComponentInChildren<FeedbackManager>();
              if (feedbackManager == null) Debug.LogWarning("PlayerGlobalActions: FeedbackManager не найден. Подсказки и фидбек не будут работать.", this);
         }
+        targetingSystem = GetComponent<TargetingSystem>();
+        if (targetingSystem == null) Debug.LogError("PlayerGlobalActions: TargetingSystem не найден!", this);
 
         if (interactionLayerMask == 0) interactionLayerMask = Physics.DefaultRaycastLayers;
         if (combatLayerMask == 0) combatLayerMask = Physics.DefaultRaycastLayers;
@@ -55,11 +58,12 @@ public class PlayerGlobalActions : MonoBehaviour
         }
     }
 
-    public void OnInteract(InputAction.CallbackContext context) // Клавиша E
+    public void OnInteract(InputAction.CallbackContext context)
     {
-        if (!context.performed) return;
+        if (!context.performed || targetingSystem == null) return;
+        
         RaycastHit hit;
-        if (PerformRaycast(out hit, actionDistance, interactionLayerMask))
+        if (targetingSystem.TryGetTarget(actionDistance, interactionLayerMask, out hit))
         {
             Interactable interactable = hit.collider.GetComponent<Interactable>();
             if (interactable != null)
@@ -68,9 +72,9 @@ public class PlayerGlobalActions : MonoBehaviour
                 string feedbackMessage = interactable.Interact();
                 feedbackManager?.ShowFeedbackMessage(feedbackMessage);
             }
-            else { feedbackManager?.ShowFeedbackMessage("Не с чем взаимодействовать."); }
+            else { feedbackManager?.ShowFeedbackMessage("There is nothing to interact with."); } // Перевод
         }
-        else { feedbackManager?.ShowFeedbackMessage("Здесь нечего делать."); }
+        else { feedbackManager?.ShowFeedbackMessage("There is nothing here."); } // Перевод
     }
     
     private CharacterStats GetAttackingPartyMember()
@@ -116,49 +120,48 @@ public class PlayerGlobalActions : MonoBehaviour
         feedbackManager?.ShowFeedbackMessage(feedbackMessage);
     }
 
-    public void OnAttack(InputAction.CallbackContext context) // Клавиша F (Форсированная АТАКА)
+    public void OnAttack(InputAction.CallbackContext context)
     {
-        if (!context.performed) return;
+        if (!context.performed || targetingSystem == null) return;
+        
         RaycastHit hit;
-        if (PerformRaycast(out hit, actionDistance, combatLayerMask))
+        if (targetingSystem.TryGetTarget(actionDistance, combatLayerMask, out hit))
         {
             CharacterStats targetStats = hit.collider.GetComponent<CharacterStats>();
-            if (targetStats != null)
+            if (targetStats != null && !partyManager.partyMembers.Contains(targetStats))
             {
-                if (partyManager != null && !partyManager.partyMembers.Contains(targetStats)) // Не союзник
-                {
-                    AIController npcController = targetStats.GetComponent<AIController>();
-                    HandlePlayerAttackOnNPC(targetStats, npcController);
-                }
-                else { feedbackManager?.ShowFeedbackMessage("Нельзя атаковать своих."); }
+                AIController npcController = targetStats.GetComponent<AIController>();
+                HandlePlayerAttackOnNPC(targetStats, npcController);
             }
-            else { feedbackManager?.ShowFeedbackMessage("Цель невосприимчива к атаке."); }
+            else { feedbackManager?.ShowFeedbackMessage("The target is immune to attack."); } // Перевод
         }
-        else { feedbackManager?.ShowFeedbackMessage("Атака: Цель не найдена."); }
+        else { feedbackManager?.ShowFeedbackMessage("Attack: Target not found."); } // Перевод
     }
 
     public void OnPrimaryAction(InputAction.CallbackContext context) // ЛКМ
     {
-        if (!context.performed) return;
+        if (!context.performed || targetingSystem == null) return;
+        
         RaycastHit hit;
         bool actionTaken = false;
 
-        if (PerformRaycast(out hit, actionDistance, combatLayerMask))
+        // Сначала пытаемся атаковать
+        if (targetingSystem.TryGetTarget(actionDistance, combatLayerMask, out hit))
         {
             CharacterStats targetStats = hit.collider.GetComponent<CharacterStats>();
-            if (targetStats != null && (partyManager == null || !partyManager.partyMembers.Contains(targetStats))) // Не союзник
+            if (targetStats != null && !partyManager.partyMembers.Contains(targetStats))
             {
-                if (!targetStats.IsDead) // Атакуем только живых
+                if (!targetStats.IsDead)
                 {
                     AIController npcController = targetStats.GetComponent<AIController>();
                     HandlePlayerAttackOnNPC(targetStats, npcController);
                     actionTaken = true;
                 }
-                // Если мертв, то не делаем actionTaken = true, чтобы дать шанс Interactable
             }
         }
 
-        if (!actionTaken && PerformRaycast(out hit, actionDistance, interactionLayerMask)) 
+        // Если не атаковали, пытаемся взаимодействовать
+        if (!actionTaken && targetingSystem.TryGetTarget(actionDistance, interactionLayerMask, out hit)) 
         {
             Interactable interactable = hit.collider.GetComponent<Interactable>();
             if (interactable != null)
@@ -170,8 +173,9 @@ public class PlayerGlobalActions : MonoBehaviour
             }
         }
         
-        if (!actionTaken) { feedbackManager?.ShowFeedbackMessage("Здесь нечего делать."); }
+        if (!actionTaken) { feedbackManager?.ShowFeedbackMessage("There is nothing to do here."); } // Перевод
     }
+
     public void OnRest(InputAction.CallbackContext context)
     {
         if (context.performed)
@@ -242,21 +246,6 @@ public class PlayerGlobalActions : MonoBehaviour
             // Debug.Log("PlayerGlobalActions: Party has rested. Health and ability charges restored.");
         }
     }
-    private bool PerformRaycast(out RaycastHit hitInfo, float maxDistance, LayerMask layerMask)
-    {
-        Ray ray;
-        if (isCursorFree)
-        {
-            Camera camComponent = cameraTransform.GetComponent<Camera>();
-            if (camComponent == null) { hitInfo = default; return false; }
-            ray = camComponent.ScreenPointToRay(Mouse.current.position.ReadValue());
-        }
-        else
-        {
-            ray = new Ray(cameraTransform.position, cameraTransform.forward);
-        }
-        return Physics.Raycast(ray, out hitInfo, maxDistance, layerMask);
-    }
 
     private void ApplyCursorState()
     {
@@ -266,58 +255,59 @@ public class PlayerGlobalActions : MonoBehaviour
 
     public string GetCurrentHoverInfo()
     {
-        RaycastHit characterHitInfo, interactableHitInfo;
-        bool hitCharacter = PerformRaycast(out characterHitInfo, actionDistance, combatLayerMask);
-        bool hitInteractable = PerformRaycast(out interactableHitInfo, actionDistance, interactionLayerMask);
+        if (targetingSystem == null) return "";
 
-        CharacterStats character = hitCharacter ? characterHitInfo.collider.GetComponent<CharacterStats>() : null;
-        Interactable interactable = hitInteractable ? interactableHitInfo.collider.GetComponent<Interactable>() : null;
-        AIController npcCtrl = character ? character.GetComponent<AIController>() : null;
+        RaycastHit hitInfo;
+        LayerMask combinedMask = interactionLayerMask | combatLayerMask;
 
-        string promptToShow = "";
-
-        if (character != null && (partyManager == null || !partyManager.partyMembers.Contains(character))) // Not a party member
+        if (targetingSystem.TryGetTarget(actionDistance, combinedMask, out hitInfo))
         {
-            if (!character.IsDead)
+            CharacterStats character = hitInfo.collider.GetComponent<CharacterStats>();
+            Interactable interactable = hitInfo.collider.GetComponent<Interactable>();
+
+            if (character != null && (partyManager == null || !partyManager.partyMembers.Contains(character)))
             {
-                string alignmentText = "";
-                if (npcCtrl != null)
+                if (!character.IsDead)
                 {
-                    switch (npcCtrl.currentAlignment)
+                    AIController npcController = character.GetComponent<AIController>();
+                    string alignmentText = "";
+                    if (npcController != null)
                     {
-                        case AIController.Alignment.Friendly: alignmentText = " (Дружелюбен)"; break;
-                        case AIController.Alignment.Neutral:  alignmentText = " (Нейтрален)"; break;
-                        case AIController.Alignment.Hostile:  alignmentText = " (Враждебен)"; break;
+                        switch (npcController.currentAlignment)
+                        {
+                            case AIController.Alignment.Friendly: alignmentText = " (Friendly)"; break;
+                            case AIController.Alignment.Neutral: alignmentText = " (Neutral)"; break;
+                            case AIController.Alignment.Hostile: alignmentText = " (Hostile)"; break;
+                        }
                     }
+
+                    string hoverText = $"{character.gameObject.name}{alignmentText}\nHP: {character.currentHealth}/{character.maxHealth}";
+
+                    CharacterStats potentialAttacker = GetAttackingPartyMember();
+                    if (potentialAttacker != null)
+                    {
+                        int hitChance = basePlayerHitChance;
+                        hitChance += potentialAttacker.AgilityHitBonusPercent;
+                        hitChance -= character.AgilityEvasionBonusPercent;
+                        hitChance = Mathf.Clamp(hitChance, minPlayerHitChance, maxPlayerHitChance);
+                        hoverText += $" (Hit Chance: {hitChance}%)";
+                    }
+                    return hoverText;
                 }
-                promptToShow = $"{character.gameObject.name}{alignmentText} (HP: {character.currentHealth}/{character.maxHealth})";
-                
-                CharacterStats potentialAttacker = GetAttackingPartyMember();
-                if (potentialAttacker != null)
+                else
                 {
-                    int hitChancePreview = basePlayerHitChance;
-                    hitChancePreview += potentialAttacker.AgilityHitBonusPercent;
-                    hitChancePreview -= character.AgilityEvasionBonusPercent;
-                    hitChancePreview = Mathf.Clamp(hitChancePreview, minPlayerHitChance, maxPlayerHitChance);
-                    promptToShow += $" (Шанс: {hitChancePreview}%)";
+                    return interactable?.interactionPrompt ?? $"{character.gameObject.name} (Defeated)";
                 }
             }
-            else 
+
+            if (interactable != null)
             {
-                Interactable corpseInteractable = characterHitInfo.collider.GetComponent<LootableCorpse>();
-                promptToShow = corpseInteractable != null ? corpseInteractable.interactionPrompt : $"{character.gameObject.name} (Повержен)";
+                return interactable.interactionPrompt;
             }
         }
-        else if (interactable != null)
-        {
-            bool isSameTargetAsCharacter = hitCharacter && characterHitInfo.collider == interactableHitInfo.collider;
-            if (!isSameTargetAsCharacter || string.IsNullOrEmpty(promptToShow))
-            {
-                 promptToShow = interactable.interactionPrompt;
-            }
-        }
-        return promptToShow;
+        return "";
     }
+
 
     public void OnSaveGame(InputAction.CallbackContext context)
     {

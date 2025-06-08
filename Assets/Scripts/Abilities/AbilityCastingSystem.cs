@@ -8,12 +8,10 @@ public class AbilityCastingSystem : MonoBehaviour
     public static AbilityCastingSystem Instance { get; private set; }
 
     [Header("Ссылки")]
-    [Tooltip("Ссылка на PlayerGlobalActions для проверки режима курсора.")]
-    public PlayerGlobalActions playerGlobalActions;
-    [Tooltip("Ссылка на PartyManager для получения информации о кастере.")]
-    public PartyManager partyManager;
-    [Tooltip("Ссылка на FeedbackManager для сообщений.")]
-    public FeedbackManager feedbackManager; // Опционально, но полезно
+    [SerializeField] private PlayerGlobalActions playerGlobalActions;
+    [SerializeField] private PartyManager partyManager;
+    [SerializeField] private FeedbackManager feedbackManager;
+    [SerializeField] private TargetingSystem targetingSystem;
 
     [Header("Layer Masks for Targeting")]
     public LayerMask interactableLayerMask; // Назначь сюда слой Interactable
@@ -21,7 +19,7 @@ public class AbilityCastingSystem : MonoBehaviour
     public LayerMask defaultRaycastLayers;  // Все остальное, если нужно
     [Header("Targeting Layers")]
     public LayerMask groundLayerMask = 1; // Слой по умолчанию (Everything), нужно настроить на слой земли
-        public LayerMask generalObstacleLayerMask;
+    public LayerMask generalObstacleLayerMask;
 
     // Ссылки на CharacterAbilities активного персонажа (или первого в партии)
     // Это нужно, чтобы знать, какие способности есть у кастера
@@ -43,6 +41,8 @@ public class AbilityCastingSystem : MonoBehaviour
         if (playerGlobalActions == null) Debug.LogError("AbilityCastingSystem: PlayerGlobalActions не назначен!", this);
         if (partyManager == null) Debug.LogError("AbilityCastingSystem: PartyManager не назначен!", this);
         // FeedbackManager опционален
+        if (targetingSystem == null) targetingSystem = GetComponent<TargetingSystem>();
+        if (targetingSystem == null) Debug.LogError("AbilityCastingSystem: TargetingSystem не назначен!", this);
     }
 
     void Start()
@@ -51,7 +51,7 @@ public class AbilityCastingSystem : MonoBehaviour
         // Эту логику можно будет усложнить (например, выбор активного персонажа).
         UpdateCurrentCaster();
     }
-    
+
     void Update()
     {
         // Можно обновлять кастера, если состав партии может меняться или активный персонаж
@@ -111,237 +111,153 @@ public class AbilityCastingSystem : MonoBehaviour
     public void OnAbility0(InputAction.CallbackContext context) { if (context.performed) TryCastAbility(9); }
 
 
-private void TryCastAbility(int abilityIndex)
+    private void TryCastAbility(int abilityIndex)
+    {
+        UpdateCurrentCaster();
+
+        if (currentCasterAbilities == null || currentCasterStats == null || currentCasterStats.IsDead)
+        {
+            feedbackManager?.ShowFeedbackMessage("Cannot use ability: No valid caster.");
+            return;
+        }
+
+        AbilitySlot abilitySlot = currentCasterAbilities.GetAbilitySlotByIndex(abilityIndex);
+        if (abilitySlot == null || abilitySlot.abilityData == null) return;
+
+        AbilityData ability = abilitySlot.abilityData;
+
+        if (!currentCasterAbilities.CanUseAbility(abilitySlot))
+        {
+            string reason = abilitySlot.currentCharges <= 0 ? "No charges left" : "Ability on cooldown";
+            feedbackManager?.ShowFeedbackMessage($"{ability.abilityName}: {reason}.");
+            return;
+        }
+
+        // --- НОВАЯ, УПРОЩЕННАЯ ЛОГИКА ОПРЕДЕЛЕНИЯ ЦЕЛИ ---
+        DetermineTargetAndCast(abilitySlot);
+    }
+
+private void DetermineTargetAndCast(AbilitySlot abilitySlot)
 {
-    UpdateCurrentCaster();
-
-    if (currentCasterAbilities == null || currentCasterStats == null || currentCasterStats.IsDead)
-    {
-        this.feedbackManager?.ShowFeedbackMessage("Cannot use ability: No valid caster.");
-        return;
-    }
-
-    AbilitySlot abilitySlot = currentCasterAbilities.GetAbilitySlotByIndex(abilityIndex);
-    if (abilitySlot == null || abilitySlot.abilityData == null)
-    {
-        return; 
-    }
-
     AbilityData ability = abilitySlot.abilityData;
-
-    if (!currentCasterAbilities.CanUseAbility(abilitySlot))
-    {
-        string reason = abilitySlot.currentCharges <= 0 ? "No charges left" : "Ability on cooldown";
-        this.feedbackManager?.ShowFeedbackMessage($"{ability.abilityName}: {reason}.");
-        return;
-    }
-
     Transform primaryTargetTransform = null;
     CharacterStats primaryTargetStats = null;
-    Vector3 castPoint = Vector3.zero; 
+    Vector3 castPoint = Vector3.zero;
 
-    Ray ray = GetRayFromScreen(); 
-    float abilityRange = ability.range > 0 ? ability.range : (playerGlobalActions != null ? playerGlobalActions.actionDistance : 100f); // 100f как очень большая дефолтная дальность, если не указана
+    bool targetProcessSuccess = false;
 
-    if (ability.targetType == TargetType.Self || ability.targetType == TargetType.AreaAroundCaster)
+    switch (ability.targetType)
     {
-        primaryTargetTransform = currentCasterStats.transform;
-        primaryTargetStats = currentCasterStats;
-        castPoint = currentCasterStats.transform.position;
-    }
-else if (ability.targetType == TargetType.Point_GroundTargeted)
-{
-    Debug.Log($"--- Casting {ability.abilityName} (Point_GroundTargeted) ---");
-    Debug.Log($"Ability Range: {abilityRange}");
+        case TargetType.Self:
+            primaryTargetTransform = currentCasterStats.transform;
+            primaryTargetStats = currentCasterStats;
+            castPoint = currentCasterStats.transform.position;
+            targetProcessSuccess = true;
+            break;
 
-    RaycastHit hit;
-    // generalObstacleLayerMask должна быть настроена в инспекторе. Убедись, что она НЕ включает слой игрока, ЕСЛИ ты хочешь, чтобы луч проходил СКВОЗЬ других персонажей/объекты,
-    // чтобы всегда пытаться достать до земли на abilityRange. Если generalObstacleLayerMask включает стены и т.д., это нормально.
-    // Стандартное поведение: луч, пущенный изнутри коллайдера, игнорирует этот коллайдер.
-    // Но если между камерой и точкой на земле есть другой NPC, луч может попасть в него.
-    // Чтобы луч всегда шел до земли (или до abilityRange), generalObstacleLayerMask должна быть пустой или содержать только непроходимые препятствия.
-    // Либо, если мы хотим, чтобы зона ставилась на первое попавшееся препятствие:
-    
-    // Вариант 1: Луч останавливается на первом препятствии (кроме игрока, т.к. луч изнутри)
-    // LayerMask firstHitMask = generalObstacleLayerMask; // Используем общую маску препятствий
+        case TargetType.AreaAroundCaster:
+            // ВАЖНО: Для AoE вокруг кастера, primaryTarget остается null.
+            // Центром будет позиция кастера, но это не "цель" в том же смысле.
+            castPoint = currentCasterStats.transform.position;
+            targetProcessSuccess = true;
+            break;
 
-    // Вариант 2: Луч пытается пройти СКВОЗЬ все (кроме игрока) до земли на abilityRange
-    // Для этого маска должна быть либо очень специфичной (только слой "Ground"), либо почти пустой.
-    // Но если мы хотим, чтобы зона ставилась НА объект, если он ближе чем земля, то Вариант 1.
-    // Давай пока оставим generalObstacleLayerMask.
+        // ... (остальные case'ы остаются без изменений) ...
+        case TargetType.Point_GroundTargeted:
+            float groundRange = ability.range > 0 ? ability.range : 30f;
+            if (targetingSystem.TryGetGroundPoint(groundRange, playerGlobalActions.interactionLayerMask, out castPoint))
+            {
+                targetProcessSuccess = true;
+            }
+            break;
 
-    Debug.Log($"Raycasting for initial point with mask: {LayerMask.LayerToName(0)}... (actually using generalObstacleLayerMask: {generalObstacleLayerMask.value})");
-    if (Physics.Raycast(ray, out hit, abilityRange, generalObstacleLayerMask)) 
-    {
-        castPoint = hit.point; 
-        Debug.Log($"Initial Raycast HIT object: {hit.collider.name} at distance: {hit.distance}. CastPoint set to: {castPoint}");
-    }
-    else 
-    {
-        castPoint = ray.GetPoint(abilityRange); 
-        Debug.Log($"Initial Raycast MISSED or went full range. CastPoint set to max range: {castPoint}");
-    }
-
-    // "Приземляем" castPoint
-    // groundLayerMask должна быть настроена в инспекторе.
-    Debug.Log($"Attempting to ground castPoint: {castPoint} using groundLayerMask: {groundLayerMask.value}");
-    RaycastHit groundHit;
-    // Стреляем лучом вниз от точки (с небольшим смещением вверх, чтобы не быть внутри земли)
-    // Увеличим дальность падения луча на всякий случай и высоту старта луча.
-    if (Physics.Raycast(castPoint + Vector3.up * 5f, Vector3.down, out groundHit, 25f, groundLayerMask)) // Было: castPoint + Vector3.up * 0.5f, Vector3.down, out groundHit, 20f
-    {
-        castPoint = groundHit.point;
-        Debug.Log($"Grounding successful. Final CastPoint: {castPoint}");
-    }
-    else
-    {
-        Debug.LogWarning($"{ability.abilityName}: Could not find a valid ground position near {castPoint} (initial point after range check). Zone not created.");
-        this.feedbackManager?.ShowFeedbackMessage($"{ability.abilityName}: Could not find a valid ground position.");
-        return; 
-    }
-        // primaryTargetTransform и primaryTargetStats остаются null
-    }
-    else // Single_Creature, Single_Interactable
-    {
-        // Проверка UI ховера
-        if (playerGlobalActions != null && playerGlobalActions.IsCursorFree && hoveredPartyMemberTarget != null)
-        {
-            if (ability.targetType == TargetType.Single_Creature) // Можно бафать/лечить своих
+        case TargetType.Single_Creature:
+        case TargetType.Single_Interactable:
+            if (playerGlobalActions.IsCursorFree && hoveredPartyMemberTarget != null)
             {
                 primaryTargetTransform = hoveredPartyMemberTarget.transform;
             }
-            // Если Single_Interactable, UI ховер на члене партии не должен работать для этой цели
-        }
-        
-        // Если цель не выбрана через UI, делаем Raycast
-        if (primaryTargetTransform == null) 
-        {
-            RaycastHit hit;
-            LayerMask specificTargetMask = GetLayerMaskForAbility(ability); // Эта маска должна содержать ТОЛЬКО валидные слои для цели способности
-                                                                        // Например, для Single_Creature - слой "Characters"
-                                                                        // Для Телекинеза - слои "Characters" и "InteractableItems"
-            if (Physics.Raycast(ray, out hit, abilityRange, specificTargetMask))
-            {
-                primaryTargetTransform = hit.transform;
-            }
-        }
-
-        // Валидация цели для Телекинеза
-        if (ability.abilityName == "Telekinesis") // TODO: Заменить на флаг IsTelekinesisAbility
-        {
-            bool isValidTelekinesisTarget = false;
-            if (primaryTargetTransform != null)
-            {
-                Interactable interactableComponent = primaryTargetTransform.GetComponent<Interactable>();
-                if (interactableComponent != null)
-                {
-                    CharacterStats targetStatsForTele = primaryTargetTransform.GetComponent<CharacterStats>();
-                    if (targetStatsForTele != null) 
-                    {
-                        if (targetStatsForTele.IsDead || targetStatsForTele.GetComponent<LootableCorpse>() != null) 
-                        {
-                            isValidTelekinesisTarget = true;
-                        }
-                    }
-                    else 
-                    {
-                        isValidTelekinesisTarget = true;
-                    }
-                }
-            }
-            if (!isValidTelekinesisTarget)
-            {
-                this.feedbackManager?.ShowFeedbackMessage("Telekinesis: Invalid target.");
-                return; 
-            }
-        }
-        
-        // Установка castPoint и primaryTargetStats для Single_Target способностей
-        if (primaryTargetTransform != null)
-        {
-            primaryTargetStats = primaryTargetTransform.GetComponent<CharacterStats>();
-            castPoint = primaryTargetTransform.position; 
-        }
-    }
-
-    // Финальные проверки валидности цели
-    if ((ability.targetType == TargetType.Single_Creature || ability.targetType == TargetType.Single_Interactable) && primaryTargetTransform == null)
-    {
-        this.feedbackManager?.ShowFeedbackMessage($"{ability.abilityName}: Target not found.");
-        return;
-    }
-    
-    if (ability.targetType == TargetType.Single_Creature && primaryTargetStats == null)
-    {
-        // Исключение для Телекинеза на труп (LootableCorpse), который может быть Single_Creature по типу цели, но не иметь "живых" CharacterStats
-        bool isTelekinesisOnCorpseWithoutStats = (ability.abilityName == "Telekinesis" && 
-                                                 primaryTargetTransform != null && 
-                                                 primaryTargetTransform.GetComponent<LootableCorpse>() != null &&
-                                                 primaryTargetStats == null); // Если у трупа почему-то нет CharacterStats, но есть LootableCorpse
-
-        if (!isTelekinesisOnCorpseWithoutStats)
-        {
-            this.feedbackManager?.ShowFeedbackMessage($"{ability.abilityName}: Target is not a creature.");
-            return;
-        }
-    }
-    
-    // Вызов каста
-    bool castInitiated = currentCasterAbilities.TryUseAbility(
-        abilitySlot, 
-        currentCasterStats, 
-        this.feedbackManager, 
-        primaryTargetTransform, 
-        castPoint, 
-        ability 
-    );
-    
-    if (castInitiated)
-    {
-        // Общий фидбек, если нужен и не был дан ранее
-        // (например, для способностей без состязания и без специфичного фидбека от эффектов)
-        if (!ability.usesContest && ability.abilityName != "Telekinesis" && ability.targetType != TargetType.Self && ability.targetType != TargetType.AreaAroundCaster)
-        {
-            // Можно добавить фидбек, что способность X была использована на Y, если Y - это primaryTargetTransform.name
-            // if(primaryTargetTransform != null) this.feedbackManager?.ShowFeedbackMessage($"{currentCasterStats.gameObject.name} uses {ability.abilityName} on {primaryTargetTransform.name}.");
-            // else this.feedbackManager?.ShowFeedbackMessage($"{currentCasterStats.gameObject.name} uses {ability.abilityName}.");
-        }
-    }
-}
-
-    private LayerMask GetLayerMaskForAbility(AbilityData ability)
-    {
-        // Возвращаем маску в зависимости от того, на какие типы объектов может целиться способность
-        // Это может быть слой "Characters", слой "Interactable", или их комбинация.
-        // Если способность может целиться во что угодно (кроме игрока), то generalObstacleLayerMask.
-        
-        if (ability.targetType == TargetType.Single_Interactable)
-        {
-            if (ability.abilityName == "Telekinesis") // TODO: Заменить на флаг
-            {
-                // Телекинез на Interactable и Characters (трупы)
-                // Предположим, у тебя есть слои "InteractableItems" и "Characters"
-                return LayerMask.GetMask("InteractableItems", "Characters"); // Настрой свои слои
-            }
             else
             {
-                return LayerMask.GetMask("InteractableItems"); // Только интерактивные предметы
+                float singleTargetRange = ability.range > 0 ? ability.range : playerGlobalActions.actionDistance;
+                if (targetingSystem.TryGetTarget(singleTargetRange, GetLayerMaskForAbility(ability), out RaycastHit hit))
+                {
+                    primaryTargetTransform = hit.transform;
+                }
             }
-        }
-        else if (ability.targetType == TargetType.Single_Creature)
+
+            if (primaryTargetTransform != null)
+            {
+                primaryTargetStats = primaryTargetTransform.GetComponent<CharacterStats>();
+                castPoint = primaryTargetTransform.position;
+                if (ValidateSingleTarget(ability, primaryTargetTransform, primaryTargetStats))
+                {
+                    targetProcessSuccess = true;
+                }
+            }
+            break;
+    }
+
+    if (targetProcessSuccess)
+    {
+        currentCasterAbilities.TryUseAbility(
+            abilitySlot, currentCasterStats, feedbackManager, 
+            primaryTargetTransform, castPoint, ability
+        );
+    }
+    else
+    {
+        feedbackManager?.ShowFeedbackMessage(FeedbackGenerator.TargetNotFound(ability.abilityName));
+    }
+}
+    // Вспомогательный метод для валидации цели (пока оставляем здесь)
+    private bool ValidateSingleTarget(AbilityData ability, Transform targetTransform, CharacterStats targetStats)
+    {
+        // НОВАЯ ПРОВЕРКА: ищем эффект взаимодействия
+        bool isInteractionAbility = ability.effectsToApply.Any(effect => effect is InteractEffectData);
+
+        if (isInteractionAbility)
         {
-            return LayerMask.GetMask("Characters"); // Только персонажи
+            Interactable interactableComponent = targetTransform.GetComponent<Interactable>();
+            if (interactableComponent == null) return false;
+            
+            // Телекинез/взаимодействие не должно работать на живых существ, которые не являются трупами
+            if (targetStats != null && !targetStats.IsDead && targetTransform.GetComponent<LootableCorpse>() == null)
+            {
+                return false;
+            }
+            return true;
+        }
+
+        // Обычная проверка для Single_Creature
+        if (ability.targetType == TargetType.Single_Creature && targetStats == null)
+        {
+            feedbackManager?.ShowFeedbackMessage(FeedbackGenerator.InvalidTarget(ability.abilityName));
+            return false;
         }
         
-        // Для Point_GroundTargeted мы используем groundLayerMask для "приземления",
-        // а для основного луча - маску, которая блокирует все, КРОМЕ игрока.
-        // Эту маску можно назвать, например, "WorldGeometryAndCharactersAndInteractables"
-        // или просто использовать generalObstacleLayerMask, если она включает все нужное.
-        // Пока оставим так, в TryCastAbility логика будет конкретнее.
-
-        return generalObstacleLayerMask; // По умолчанию для других случаев или если не указано
+        return true;
     }
-        private Ray GetRayFromScreen()
+
+
+
+    // Этот метод теперь тоже можно упростить или убрать, если маски будут в TargetingSystem
+    private LayerMask GetLayerMaskForAbility(AbilityData ability)
+    {
+        if (ability.targetType == TargetType.Single_Interactable)
+        {
+            if (ability.abilityName == "Telekinesis")
+                return LayerMask.GetMask("Interactable", "Characters");
+            else
+                return LayerMask.GetMask("Interactable");
+        }
+        if (ability.targetType == TargetType.Single_Creature)
+        {
+            return LayerMask.GetMask("Characters");
+        }
+        return playerGlobalActions.interactionLayerMask; // Дефолтная маска
+    }
+    private Ray GetRayFromScreen()
     {
         Camera mainCamera = Camera.main;
         if (mainCamera == null)

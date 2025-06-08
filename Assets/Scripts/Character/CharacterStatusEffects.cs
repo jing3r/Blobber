@@ -6,10 +6,17 @@ public class CharacterStatusEffects : MonoBehaviour
 {
     private CharacterStats _characterStats;
     private List<ActiveStatusEffect> _activeEffects = new List<ActiveStatusEffect>();
+    public bool IsStatusActive(StatusEffectData statusData)
+    {
+        if (statusData == null) return false;
+        // Сравниваем напрямую SO или по ID, если SO может быть дублирован. Прямое сравнение надежнее.
+        return _activeEffects.Any(e => e.Data == statusData);
+    }
+    [System.Obsolete("Use IsStatusActive(StatusEffectData) instead.")]
     public bool IsStatusActive(string statusID)
-{
-    return _activeEffects.Any(e => e.Data.statusID == statusID);
-}
+    {
+        return _activeEffects.Any(e => e.Data.statusID == statusID);
+    }
 
     // ----- ИЗМЕНЕНИЕ: Сделать класс публичным -----
     public class ActiveStatusEffect // Был private по умолчанию
@@ -54,8 +61,8 @@ public class CharacterStatusEffects : MonoBehaviour
                 effect.TimeRemaining -= Time.deltaTime;
                 if (effect.TimeRemaining <= 0)
                 {
-                    RemoveStatus(effect, true); 
-                    continue; 
+                    RemoveStatus(effect, true);
+                    continue;
                 }
             }
 
@@ -114,7 +121,7 @@ public class CharacterStatusEffects : MonoBehaviour
             {
                 duration = effectData.fixedDuration;
             }
-            duration = Mathf.Max(0, duration); 
+            duration = Mathf.Max(0, duration);
         }
 
         // Если это таймерный статус с нулевой длительностью, нет тиков, и нет модификаторов "до отдыха", не применяем.
@@ -138,17 +145,17 @@ public class CharacterStatusEffects : MonoBehaviour
                 actualRestoreCondition = StatusEffectData.RestoreCondition.Rest;
             }
             _characterStats.AddAttributeModifier(mod.targetAttribute, mod.modifierValue, actualRestoreCondition);
-            newActiveEffect.AppliedModifiers.Add(mod); 
+            newActiveEffect.AppliedModifiers.Add(mod);
         }
 
         // Применяем множитель скорости передвижения, если статус его имеет
-        if (effectData.movementSpeedMultiplier != 1.0f) 
+        if (effectData.movementSpeedMultiplier != 1.0f)
         {
             _characterStats.ApplySpeedMultiplier(effectData.movementSpeedMultiplier);
             newActiveEffect.AppliedSpeedMultiplier = effectData.movementSpeedMultiplier; // Запоминаем примененный множитель
             // Debug.Log($"{_characterStats.name} received status '{effectData.statusName}'. Speed multiplier applied: {effectData.movementSpeedMultiplier}. Current cumulative: {_characterStats._movementSpeedMultiplierFromStatus}.");
         }
-        
+
         // TODO: Создать VFX, если есть (effectData.statusVFXPrefab)
         if (effectData.statusVFXPrefab != null)
         {
@@ -163,7 +170,7 @@ public class CharacterStatusEffects : MonoBehaviour
     private void ApplyTickEffect(ActiveStatusEffect activeEffect)
     {
         StatusEffectData data = activeEffect.Data;
-        if (data.baseDamagePerTick != 0) 
+        if (data.baseDamagePerTick != 0)
         {
             int tickAmount = data.baseDamagePerTick;
             if (data.tickEffectScalingAttribute != AssociatedAttribute.None && activeEffect.Caster != null)
@@ -174,18 +181,59 @@ public class CharacterStatusEffects : MonoBehaviour
             }
 
             if (tickAmount > 0)
-                _characterStats.TakeDamage(tickAmount, activeEffect.Caster?.transform); 
-            else if (tickAmount < 0) 
+                _characterStats.TakeDamage(tickAmount, activeEffect.Caster?.transform);
+            else if (tickAmount < 0)
                 _characterStats.Heal(Mathf.Abs(tickAmount));
         }
     }
 
-    // --- ПОЛНЫЙ МЕТОД RemoveStatus ---
-    public void RemoveStatus(ActiveStatusEffect effectInstance, bool expiredByTimer)
+    public void RemoveStatus(StatusEffectData statusDataToRemove)
+    {
+        if (statusDataToRemove == null) return;
+        ActiveStatusEffect effectToRemove = _activeEffects.FirstOrDefault(e => e.Data == statusDataToRemove);
+        if (effectToRemove != null)
+        {
+            // Вызываем наш основной метод удаления по инстансу
+            RemoveStatus(effectToRemove, false);
+        }
+    }
+
+    public void ClearStatusEffectsOnRest()
+    {
+        _characterStats.ClearRestAttributeModifiers();
+
+        for (int i = _activeEffects.Count - 1; i >= 0; i--)
+        {
+            ActiveStatusEffect currentEffect = _activeEffects[i];
+
+            // Снимаем только те, что снимаются при отдыхе.
+            // Timer и RequiresCure остаются.
+            if (currentEffect.Data.restoreCondition == StatusEffectData.RestoreCondition.Rest)
+            {
+                // Этот вызов уже откатывает все модификаторы, так что он безопасен
+                RemoveStatus(currentEffect, false);
+            }
+        }
+
+        _characterStats.RecalculateAllStats();
+    }
+
+    // public void CureStatus(CureType cureType) { ... } // для RequiresCure
+
+    // Старый метод для обратной совместимости или для удаления, когда все вызовы будут заменены.
+    public void RemoveStatusByID(string statusID)
+    {
+        ActiveStatusEffect effectToRemove = _activeEffects.FirstOrDefault(e => e.Data.statusID == statusID);
+        if (effectToRemove != null)
+        {
+            RemoveStatus(effectToRemove, false);
+        }
+    }
+    
+        private void RemoveStatus(ActiveStatusEffect effectInstance, bool expiredByTimer)
     {
         if (effectInstance == null || !_activeEffects.Contains(effectInstance)) return;
 
-        // Откатываем модификаторы атрибутов
         foreach (var mod in effectInstance.AppliedModifiers)
         {
              var actualRestoreCondition = mod.modifierRestoreCondition;
@@ -196,67 +244,11 @@ public class CharacterStatusEffects : MonoBehaviour
             _characterStats.RemoveAttributeModifier(mod.targetAttribute, mod.modifierValue, actualRestoreCondition);
         }
         
-        // Откатываем множитель скорости передвижения
         if (effectInstance.AppliedSpeedMultiplier != 1.0f) 
         {
             _characterStats.RemoveSpeedMultiplier(effectInstance.AppliedSpeedMultiplier);
-            // Debug.Log($"{_characterStats.name} lost status '{effectInstance.Data.statusName}'. Speed multiplier reverted: {effectInstance.AppliedSpeedMultiplier}. Current cumulative: {_characterStats._movementSpeedMultiplierFromStatus}.");
         }
 
         _activeEffects.Remove(effectInstance);
-        // Debug.Log($"{_characterStats.name} lost status: {effectInstance.Data.statusName}. Remaining active statuses: {_activeEffects.Count}");
-
-        // TODO: Уничтожить VFX, если он был создан
-        // if (effectInstance.VFXInstance != null) Destroy(effectInstance.VFXInstance);
-    }
-
-    public void ClearStatusEffectsOnRest()
-    {
-        // Сначала снимаем все модификаторы атрибутов "до отдыха" через CharacterStats
-        _characterStats.ClearRestAttributeModifiers(); // Это вызовет RecalculateAllStats
-
-        // Затем удаляем сами активные статусы, которые должны были сняться при отдыхе,
-        // но их атрибутные модификаторы "до отдыха" уже были сняты.
-        // Для таймерных статусов, чьи модификаторы были "до отдыха", они тоже сняты.
-        // Остаются только таймерные статусы с таймерными модификаторами.
-        for (int i = _activeEffects.Count - 1; i >= 0; i--)
-        {
-            ActiveStatusEffect currentEffect = _activeEffects[i];
-            bool removeThisStatus = false;
-
-            if (currentEffect.Data.restoreCondition == StatusEffectData.RestoreCondition.Rest)
-            {
-                removeThisStatus = true;
-            }
-            else // Timer status
-            {
-                // Если у таймерного статуса все его модификаторы были "до отдыха" и уже сняты,
-                // то и сам таймерный статус можно считать неактивным (хотя он мог бы продолжать тикать, если бы у него были тики).
-                // Но для чистоты, если все его модификаторы были Rest, его тоже можно убрать.
-                // Однако, если у него есть тики, он должен продолжать работать.
-                // Пока оставим только те, что явно Rest.
-            }
-            
-            if(removeThisStatus)
-            {
-                // Откатывать модификаторы здесь уже не нужно, т.к. ClearRestAttributeModifiers это сделал для тех, что Rest.
-                // Но если у статуса были таймерные модификаторы, а сам статус Rest, то их тоже нужно было снять как Rest.
-                // Логика в ApplyStatus и RemoveStatus уже должна это учитывать.
-                // Здесь просто удаляем из списка.
-                 _activeEffects.RemoveAt(i);
-                // Debug.Log($"{_characterStats.gameObject.name} потерял статус (из-за отдыха): {currentEffect.Data.statusName}");
-            }
-        }
-         // После всех манипуляций со статусами, на всякий случай, один раз пересчитываем статы.
-        _characterStats.RecalculateAllStats();
-    }
-    
-    public void RemoveStatusByID(string statusID)
-    {
-        ActiveStatusEffect effectToRemove = _activeEffects.FirstOrDefault(e => e.Data.statusID == statusID);
-        if (effectToRemove != null)
-        {
-            RemoveStatus(effectToRemove, false); 
-        }
     }
 }

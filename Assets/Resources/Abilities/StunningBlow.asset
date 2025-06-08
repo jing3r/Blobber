@@ -10,14 +10,13 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 5c5d038270238824e898faceeb3d4987, type: 3}
-  m_Name: Intimidate
+  m_Name: StunningBlow
   m_EditorClassIdentifier: 
-  abilityName: Intimidate
-  description: Attempts to scare a single enemy, causing them to flee and suffer
-    from fear.
+  abilityName: Stunning Blow
+  description: A powerful strike that can stun an enemy.
   icon: {fileID: 0}
   targetType: 1
-  range: 10
+  range: 3
   areaOfEffectRadius: 0
   affectsSelfInAoe: 0
   affectsPartyMembersInAoe: 0
@@ -27,16 +26,16 @@ MonoBehaviour:
   cooldown: 1
   maxCharges: 3
   castTime: 0
-  usesContest: 0
-  attackerAttribute1: 2
-  attackerAttribute2: 3
-  attackerAttribute3: 0
-  defenderAttribute1: 2
-  defenderAttribute2: 0
-  defenderAttribute3: 3
+  usesContest: 1
+  attackerAttribute1: 0
+  attackerAttribute2: 1
+  attackerAttribute3: 3
+  defenderAttribute1: 0
+  defenderAttribute2: 2
+  defenderAttribute3: 1
   effectsToApply:
-  - rid: 385089688418648067
-  - rid: 385089688418648068
+  - rid: 385089688418648071
+  - rid: 385089688418648072
   castSound: {fileID: 0}
   startVFXPrefab: {fileID: 0}
   targetVFXPrefab: {fileID: 0}
@@ -44,12 +43,17 @@ MonoBehaviour:
   references:
     version: 2
     RefIds:
-    - rid: 385089688418648067
-      type: {class: ChangeAIStateEffectData, ns: , asm: Assembly-CSharp}
+    - rid: 385089688418648071
+      type: {class: DamageEffectData, ns: , asm: Assembly-CSharp}
       data:
-        targetState: 4
-    - rid: 385089688418648068
+        baseDamageAmount: 5
+        scalingAttribute: 0
+        scaleFactor: 1
+        applyToAllInAreaIfAoE: 0
+        effectVerb: damaged
+    - rid: 385089688418648072
       type: {class: ApplyStatusEffectData, ns: , asm: Assembly-CSharp}
       data:
-        statusEffectToApply: {fileID: 11400000, guid: 9a3551a5e79c1d64aa7be161d074e7ad, type: 2}
+        statusEffectToApply: {fileID: 11400000, guid: cebf948d8b20d3a48a45a753cd07a82c, type: 2}
         applyToAllInAreaIfAoE: 0
+        effectVerb: stunned

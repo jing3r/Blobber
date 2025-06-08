@@ -3839,7 +3839,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 6181609087075977617, guid: 65c4f5c0d57709349bb6dfa7a10f80d2, type: 3}
       propertyPath: m_LocalPosition.z
-      value: -190.53
+      value: -195.74
       objectReference: {fileID: 0}
     - target: {fileID: 6181609087075977617, guid: 65c4f5c0d57709349bb6dfa7a10f80d2, type: 3}
       propertyPath: m_LocalRotation.w
@@ -5380,6 +5380,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   initialAbilities:
+  - {fileID: 11400000, guid: 1dfec642cc98372449beb9799c211c0b, type: 2}
   - {fileID: 11400000, guid: b96eda46f8b4dac46889fa3cb88de963, type: 2}
   - {fileID: 11400000, guid: 03b0e37822f483e49a75db276afe475f, type: 2}
   - {fileID: 11400000, guid: d291ce3bdf59f844892f34c0953086a4, type: 2}
@@ -5390,7 +5391,6 @@ MonoBehaviour:
   - {fileID: 11400000, guid: cc3f20c8421250348aef42a236c9cdb0, type: 2}
   - {fileID: 11400000, guid: ba74388312694da42a9e50980167b1b0, type: 2}
   - {fileID: 11400000, guid: 10bf873d36529fd4a8d02eb18d930d9a, type: 2}
-  - {fileID: 11400000, guid: 1dfec642cc98372449beb9799c211c0b, type: 2}
 --- !u!114 &1888783536
 MonoBehaviour:
   m_ObjectHideFlags: 0

@@ -54,8 +54,10 @@ MonoBehaviour:
         groundPlacementMask:
           serializedVersion: 2
           m_Bits: 0
+        placementVerb: creates
     - rid: 385089764796137477
       type: {class: ApplyStatusEffectData, ns: , asm: Assembly-CSharp}
       data:
         statusEffectToApply: {fileID: 11400000, guid: 7d40bab04ecdee941b7e8710b4318b12, type: 2}
         applyToAllInAreaIfAoE: 0
+        effectVerb: slowed

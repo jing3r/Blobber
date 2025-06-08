@@ -25,7 +25,7 @@ MonoBehaviour:
   affectsNeutralsInAoe: 1
   affectsEnemiesInAoe: 1
   cooldown: 1
-  maxCharges: 3
+  maxCharges: 100
   castTime: 0
   usesContest: 1
   attackerAttribute1: 1
@@ -48,3 +48,4 @@ MonoBehaviour:
       data:
         statusEffectToApply: {fileID: 11400000, guid: 3398a68aef4e76f49b96430dd5723484, type: 2}
         applyToAllInAreaIfAoE: 1
+        effectVerb: dazed

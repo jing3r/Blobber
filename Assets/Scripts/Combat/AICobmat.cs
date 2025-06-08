@@ -22,7 +22,8 @@ public class AICombat : MonoBehaviour
 
     private float nextAttackTimeInternal = 0f;
     public bool IsReadyToAttack => Time.time >= nextAttackTimeInternal;
-private CharacterStatusEffects _statusEffects; 
+    private CharacterStatusEffects _statusEffects; 
+    private StatusEffectData stunnedStatusData;
     void Awake()
     {
     myStats = GetComponent<CharacterStats>();
@@ -58,11 +59,16 @@ private CharacterStatusEffects _statusEffects;
             // Debug.LogWarning($"AICombat ({gameObject.name}): PartyManager not found on Player. Targeting player party members might fail.", this);
         }
     }
-    
+
     void Start()
     {
         // Initial attack delay can be set here or when an attack state is first entered
         ResetAttackTimerWithRandomOffset();
+                stunnedStatusData = Resources.Load<StatusEffectData>("StatusEffects/Stunned"); // УКАЖИ ПРАВИЛЬНЫЙ ПУТЬ!
+        if (stunnedStatusData == null)
+        {
+            Debug.LogError("AICombat: Could not load 'Stunned' StatusEffectData from Resources/StatusEffects/. Stun check will not work.");
+        }
     }
 
     public float GetCurrentAttackDamageValue()
@@ -95,11 +101,10 @@ private CharacterStatusEffects _statusEffects;
     /// <returns>True if an attack attempt was made (hit or miss), false if target was invalid or dead.</returns>
     public bool PerformAttack(Transform overallTarget, CharacterStats specificTargetStats = null)
     {
-    if (_statusEffects != null && _statusEffects.IsStatusActive("Stunned")) // Убедись, что ID "Stunned" совпадает
-    {
-        // Debug.Log(gameObject.name + " is Stunned! Cannot attack.");
-        return false; // Не можем атаковать, если оглушены
-    }
+        if (_statusEffects != null && _statusEffects.IsStatusActive(stunnedStatusData))
+        {
+            return false; // Не можем атаковать, если оглушены
+        }
 
     if (overallTarget == null || myStats == null || myStats.IsDead) return false;
         if (overallTarget == null || myStats == null || myStats.IsDead) return false;

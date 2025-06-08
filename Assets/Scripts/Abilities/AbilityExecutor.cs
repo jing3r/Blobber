@@ -4,12 +4,12 @@ using System.Linq;
 
 public static class AbilityExecutor
 {
-public static void Execute(
+    public static void Execute(
         CharacterStats caster,
         AbilityData ability,
-        CharacterStats primarySingleTarget, 
+        CharacterStats primarySingleTarget,
         Transform primaryInteractableTarget,
-        Vector3 initialCastPoint, // Переименовал для ясности - это точка, куда целились или позиция одиночной цели
+        Vector3 initialCastPoint,
         FeedbackManager feedbackManager)
     {
         if (caster == null || ability == null)
@@ -18,118 +18,96 @@ public static void Execute(
             return;
         }
 
-        bool contestResult = true;
-        if (ability.usesContest && caster.GetComponent<AIController>() == null)
-        {
-            if (primarySingleTarget != null)
-            {
-                contestResult = CombatHelper.ResolveAttributeContest(caster, primarySingleTarget, ability);
-                if (!contestResult)
-                {
-                    feedbackManager?.ShowFeedbackMessage($"{ability.abilityName}: Contest with {primarySingleTarget.name} failed!");
-                    return;
-                }
-                else
-                {
-                    feedbackManager?.ShowFeedbackMessage($"{ability.abilityName}: Contest with {primarySingleTarget.name} won!");
-                }
-            }
-            // Если usesContest = true, а primarySingleTarget = null, то состязание не проводится.
-            // contestResult останется true. Это нужно учитывать, если AoE дебафф с состязанием должен работать на каждую цель.
-            // Пока что состязание только против основной одиночной цели.
-        }
-
         List<CharacterStats> targetsInAreaForAoE = new List<CharacterStats>();
-        Vector3 pointForEffectApplication = initialCastPoint; // Точка, которая будет передана в эффекты.
-                                                              // Для Single_Target и Point_GroundTargeted это initialCastPoint.
-                                                              // Для AreaAroundCaster это будет позиция кастера.
+        Vector3 pointForEffectApplication = initialCastPoint;
 
+        // --- Логика определения целей для AoE ---
         if (ability.targetType == TargetType.AreaAroundCaster)
         {
-            pointForEffectApplication = caster.transform.position; // Центр AoE - это кастер
+            pointForEffectApplication = caster.transform.position;
 
-            // 1. Кастер (если affectsSelfInAoe)
             if (ability.affectsSelfInAoe && caster != null && !caster.IsDead)
             {
                 targetsInAreaForAoE.Add(caster);
             }
 
-            // 2. Члены партии (если affectsPartyMembersInAoe)
             if (ability.affectsPartyMembersInAoe)
             {
-                PartyManager partyMgr = caster.GetComponentInParent<PartyManager>(); // Предполагаем, что кастер - член партии или его объект имеет доступ к PartyManager
+                PartyManager partyMgr = caster.GetComponentInParent<PartyManager>();
                 if (partyMgr != null)
                 {
                     foreach (CharacterStats member in partyMgr.partyMembers)
                     {
-                        if (member != null && member != caster && !member.IsDead && 
-                            Vector3.Distance(pointForEffectApplication, member.transform.position) <= ability.areaOfEffectRadius)
+                        if (member != null && member != caster && !member.IsDead && Vector3.Distance(pointForEffectApplication, member.transform.position) <= ability.areaOfEffectRadius)
                         {
-                            if (!targetsInAreaForAoE.Contains(member)) // Избегаем дублирования, если кастер уже добавлен
-                            {
-                                targetsInAreaForAoE.Add(member);
-                            }
+                            if (!targetsInAreaForAoE.Contains(member)) targetsInAreaForAoE.Add(member);
                         }
                     }
                 }
             }
-
-            // 3. NPC (если способность действует на них)
+            
             if (ability.affectsEnemiesInAoe || ability.affectsNeutralsInAoe || ability.affectsAlliesInAoe)
             {
-                int characterLayer = LayerMask.NameToLayer("Characters");
-                if (characterLayer != -1) {
-                    LayerMask npcMask = 1 << characterLayer;
-                    Collider[] collidersInArea = Physics.OverlapSphere(pointForEffectApplication, ability.areaOfEffectRadius, npcMask);
+                Collider[] collidersInArea = Physics.OverlapSphere(pointForEffectApplication, ability.areaOfEffectRadius, LayerMask.GetMask("Characters"));
 
-                    foreach (Collider col in collidersInArea)
+                foreach (Collider col in collidersInArea)
+                {
+                    CharacterStats targetStats = col.GetComponent<CharacterStats>();
+                    if (targetStats == null || targetStats == caster || targetsInAreaForAoE.Contains(targetStats) || targetStats.IsDead) continue;
+                    
+                    AIController targetAI = targetStats.GetComponent<AIController>();
+                    if (targetAI == null) continue;
+
+                    bool isEnemy = (targetAI.currentAlignment == AIController.Alignment.Hostile);
+                    bool isNeutral = (targetAI.currentAlignment == AIController.Alignment.Neutral);
+                    bool isAllyNPC = (targetAI.currentAlignment == AIController.Alignment.Friendly);
+                    
+                    if ((isEnemy && ability.affectsEnemiesInAoe) || (isNeutral && ability.affectsNeutralsInAoe) || (isAllyNPC && ability.affectsAlliesInAoe))
                     {
-                        CharacterStats targetStats = col.GetComponent<CharacterStats>();
-                        if (targetStats == null || targetStats == caster || targetsInAreaForAoE.Contains(targetStats)) continue;
-
-                        AIController targetAI = targetStats.GetComponent<AIController>();
-                        if (targetAI == null) continue; // Не NPC
-
-                        bool isEnemy = (targetAI.currentAlignment == AIController.Alignment.Hostile);
-                        bool isNeutral = (targetAI.currentAlignment == AIController.Alignment.Neutral);
-                        bool isAllyNPC = (targetAI.currentAlignment == AIController.Alignment.Friendly);
-                        bool addThisNpc = false;
-
-                        if (isEnemy && ability.affectsEnemiesInAoe) addThisNpc = true;
-                        else if (isNeutral && ability.affectsNeutralsInAoe) addThisNpc = true;
-                        else if (isAllyNPC && ability.affectsAlliesInAoe) addThisNpc = true;
-
-                        if (addThisNpc && !targetStats.IsDead)
-                        {
-                            targetsInAreaForAoE.Add(targetStats);
-                        }
+                        targetsInAreaForAoE.Add(targetStats);
                     }
                 }
             }
         }
-        // Если тип цели НЕ AreaAroundCaster (т.е. Point_GroundTargeted, Single_Creature, Single_Interactable, Self),
-        // то pointForEffectApplication остается равным initialCastPoint.
-        // А список targetsInAreaForAoE будет пуст (или содержать только кастера для Self, если эффекты это ожидают).
-        // Для Self-способностей, primarySingleTarget обычно устанавливается в кастера в AbilityCastingSystem.
-
-        // Применение эффектов
+        
+        // --- Применение эффектов и обработка фидбека ---
         foreach (AbilityEffectData effectData in ability.effectsToApply)
         {
-            // ВАЖНО: Передаем pointForEffectApplication как точку для применения этого эффекта.
-            // Эффекты сами должны решить, как ее использовать.
-            // CreateZoneEffectData будет использовать ее как точку создания.
-            // HealEffectData/ApplyStatusEffectData с флагом applyToAllInAreaIfAoE будет использовать targetsInAreaForAoE.
-            // Эффекты на одиночную цель будут использовать primarySingleTarget.
+            EffectResult result = effectData.ApplyEffect(caster, ability, primarySingleTarget, primaryInteractableTarget, pointForEffectApplication, ref targetsInAreaForAoE);
+
+            if (!result.WasApplied) continue;
+
+            string feedbackMessage = null;
             
-            effectData.ApplyEffect(caster, ability, primarySingleTarget, primaryInteractableTarget, pointForEffectApplication, ref targetsInAreaForAoE, contestResult);
-        }
-        
-        if (contestResult) 
-        {
-            // Общий фидбек можно улучшить, чтобы он был более контекстным
-            // Например, если это была атака на цель, то "(Кастер) использует (Способность) на (Цель)."
-            // Если это AoE, то просто "(Кастер) использует (Способность)."
-            // feedbackManager?.ShowFeedbackMessage($"{caster.name} uses {ability.abilityName}.");
+            // --- НОВАЯ ПРОВЕРКА на UseSimpleCasterFeedback ---
+            if (result.UseSimpleCasterFeedback)
+            {
+                feedbackMessage = $"{caster.name} uses {ability.abilityName}.";
+            }
+            else
+            {
+                // Стандартная обработка
+                switch (result.EffectType)
+                {
+                    case "Telekinesis":
+                        feedbackMessage = FeedbackGenerator.TelekinesisInteract(result.TargetName);
+                        break;
+                    case "PlacementSuccess":
+                        feedbackMessage = $"{caster.name} {result.TargetName} a {ability.abilityName}.";
+                        break;
+                    case "PlacementFailed":
+                        feedbackMessage = $"Cannot place {ability.abilityName} there.";
+                        break;
+                    default: 
+                        feedbackMessage = FeedbackGenerator.GenerateFeedback(ability, result);
+                        break;
+                }
+            }
+            
+            if (!string.IsNullOrEmpty(feedbackMessage))
+            {
+                feedbackManager?.ShowFeedbackMessage(feedbackMessage);
+            }
         }
     }
 }

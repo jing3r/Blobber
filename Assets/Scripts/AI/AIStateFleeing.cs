@@ -4,18 +4,22 @@ using System.Linq;
 
 public class AIStateFleeing : IAIState
 {
-    public AIController.AIState GetStateType() => AIController.AIState.Fleeing;
+    private StatusEffectData fearedStatusData; // Будем искать его один раз
 
+    public AIController.AIState GetStateType() => AIController.AIState.Fleeing;
     public void EnterState(AIController controller)
     {
-        // Debug.Log($"{controller.gameObject.name} entering Fleeing state from {controller.CurrentThreat?.name}.");
-        if (controller.CurrentThreat == null)
+        // Находим и кэшируем SO страха при первом входе в состояние
+        if (fearedStatusData == null)
         {
-            // Если нет угрозы, от которой нужно бежать, возвращаемся в Idle
-            controller.ChangeState(AIController.AIState.Idle);
-            return;
+            // Это все еще загрузка из Resources, но она происходит один раз за жизнь AI.
+            // В будущем это можно заменить на реестр статусов.
+            fearedStatusData = Resources.Load<StatusEffectData>("StatusEffects/Feared"); // УКАЖИ ПРАВИЛЬНЫЙ ПУТЬ!
+            if (fearedStatusData == null)
+            {
+                Debug.LogError("AIStateFleeing: Could not load 'Feared' StatusEffectData from Resources/StatusEffects/. Fleeing state might not work correctly with status effects.");
+            }
         }
-        // Движение начнется в UpdateState
     }
 
 public void UpdateState(AIController controller)
@@ -23,64 +27,75 @@ public void UpdateState(AIController controller)
     Transform threat = controller.CurrentThreat; 
     if (threat == null || !controller.Movement.IsOnNavMesh())
     {
+        // Debug.Log($"{controller.gameObject.name} (Fleeing): No threat to flee from or not on NavMesh. Switching to Idle.");
         controller.ChangeState(AIController.AIState.Idle);
         return;
     }
 
-    // ----- НОВОЕ: Проверка на окончание статуса "Страх" -----
-    CharacterStatusEffects statusEffects = controller.MyStats.GetComponent<CharacterStatusEffects>();
-    if (statusEffects != null && !statusEffects.IsStatusActive("Feared")) // Убедись, что ID "Feared" совпадает с твоим SO
+    // Проверка, не умерла ли угроза, от которой убегаем
+    bool threatIsInvalid = false;
+    if (threat.CompareTag("Player")) // Убедись, что у объекта игрока есть тег "Player"
     {
-        // Debug.Log($"{controller.gameObject.name} is no longer Feared (status ended). Switching to Idle.");
-        controller.ChangeState(AIController.AIState.Idle); // Если страх прошел, перестаем убегать
-        return;
-    }
-    // ----------------------------------------------------
-
-    // Проверка, не умерла ли угроза, от которой убегаем (этот блок уже должен быть у тебя)
-    CharacterStats threatStats = null;
-    bool targetIsPlayerParty = threat.CompareTag("Player"); // Предполагая, что у объекта игрока есть тег "Player"
-    if (targetIsPlayerParty)
-    {
-            if (controller.PartyManagerRef != null && !controller.PartyManagerRef.partyMembers.Any(m => m != null && !m.IsDead))
-            { 
-            controller.ClearCurrentThreat(); 
-            controller.ChangeState(AIController.AIState.Idle); return; 
-            }
+        if (controller.PartyManagerRef != null && !controller.PartyManagerRef.partyMembers.Any(m => m != null && !m.IsDead))
+        {
+            threatIsInvalid = true; 
+        }
     }
     else
     {
-        threatStats = threat.GetComponent<CharacterStats>();
-        if (threatStats != null && threatStats.IsDead)
-        { 
-            controller.ClearCurrentThreat(); 
-            controller.ChangeState(AIController.AIState.Idle); return; 
-        }
-        else if (threatStats == null && !targetIsPlayerParty) 
+        CharacterStats threatStats = threat.GetComponent<CharacterStats>();
+        if (threatStats != null)
         {
-            controller.ClearCurrentThreat();
-            controller.ChangeState(AIController.AIState.Idle);
-            return;
+            if (threatStats.IsDead) threatIsInvalid = true;
+        }
+        else // Не игрок и нет CharacterStats
+        {
+            threatIsInvalid = true;
         }
     }
 
-    float distanceToThreat = Vector3.Distance(controller.transform.position, threat.position);
-    if (distanceToThreat > controller.fleeDistance) 
+    if (threatIsInvalid)
     {
-        // Debug.Log($"{controller.gameObject.name} (Fleeing): Fled far enough from {threat.name}. Switching to Idle.");
+        // Debug.Log($"{controller.gameObject.name} (Fleeing): Threat {threat.name} is invalid (dead/no stats). Clearing and switching to Idle.");
+        controller.ClearCurrentThreat(); 
         controller.ChangeState(AIController.AIState.Idle); 
         return;
     }
+        CharacterStatusEffects statusEffects = controller.MyStats.GetComponent<CharacterStatusEffects>();
+        
+        // ОБНОВЛЕННЫЙ ВЫЗОВ
+        bool isUnderFearedStatus = statusEffects != null && statusEffects.IsStatusActive(fearedStatusData);
 
-    // Логика движения ОТ угрозы (этот блок уже должен быть у тебя)
-    Vector3 directionFromThreat = (controller.transform.position - threat.position).normalized;
+        bool stopFleeing = false;
+        if (isUnderFearedStatus)
+        {
+            // Логика остается той же, но теперь мы знаем, что статус закончился, если IsStatusActive(fearedStatusData) вернет false.
+            // Поскольку наш IsStatusActive теперь всегда актуален, нам не нужно ничего больше.
+        }
+        else // Если не под статусом, убегаем по "естественным" причинам
+        {
+            float distanceToThreat = Vector3.Distance(controller.transform.position, controller.CurrentThreat.position);
+            if (distanceToThreat > controller.fleeDistance)
+            {
+                stopFleeing = true;
+            }
+        }
+        
+        if (stopFleeing)
+        {
+            controller.ChangeState(AIController.AIState.Idle);
+            return;
+        }
+    
+    // Если все еще должны убегать, продолжаем логику движения.
+        Vector3 directionFromThreat = (controller.transform.position - threat.position).normalized;
     if (directionFromThreat == Vector3.zero) 
     {
         directionFromThreat = (Random.insideUnitSphere).normalized;
         if (directionFromThreat == Vector3.zero) directionFromThreat = Vector3.forward; 
     }
     
-    Vector3 fleeDestinationPoint = controller.transform.position + directionFromThreat * 5f; 
+    Vector3 fleeDestinationPoint = controller.transform.position + directionFromThreat * 5f; // Пытаемся отбежать еще на 5м 
 
     NavMeshHit hit; 
     if (NavMesh.SamplePosition(fleeDestinationPoint, out hit, 10f, NavMesh.AllAreas))
@@ -98,6 +113,7 @@ public void UpdateState(AIController controller)
         }
         else 
         { 
+            // Debug.LogWarning($"{controller.gameObject.name} (Fleeing): Cornered or cannot find flee path. Stopping and switching to Idle.");
             controller.Movement.StopMovement(); 
             controller.ChangeState(AIController.AIState.Idle); 
         }

@@ -4,7 +4,7 @@ using System.Collections.Generic;
 [CreateAssetMenu(fileName = "New Status Effect", menuName = "Abilities/Status Effect Data")]
 public class StatusEffectData : ScriptableObject
 {
-    public enum RestoreCondition { Timer, Rest }
+    public enum RestoreCondition { Timer, Rest, RequiresCure }
     public enum DurationAttributeSource { Caster, Target } // Чей атрибут использовать для длительности
 
     [Header("General Info")]

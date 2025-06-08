@@ -47,3 +47,4 @@ MonoBehaviour:
       data:
         statusEffectToApply: {fileID: 11400000, guid: 4f19f53e4bc29884cb90c2ce550ddb8d, type: 2}
         applyToAllInAreaIfAoE: 1
+        effectVerb: inspired
