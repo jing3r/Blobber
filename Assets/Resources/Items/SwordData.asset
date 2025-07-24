@@ -14,8 +14,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   itemName: Sword
   description: A sword.
-  icon: {fileID: 0}
-  weight: 20
+  icon: {fileID: 10913, guid: 0000000000000000f000000000000000, type: 0}
+  weight: 5
   gridWidth: 1
-  gridHeight: 3
+  gridHeight: 6
   maxStackSize: 1
+  validSlots: 64

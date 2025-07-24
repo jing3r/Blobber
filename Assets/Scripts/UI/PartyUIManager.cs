@@ -1,6 +1,5 @@
-using UnityEngine;
 using System.Collections.Generic;
-using TMPro; // Для TextMeshPro
+using UnityEngine;
 
 public class PartyUIManager : MonoBehaviour
 {
@@ -13,13 +12,10 @@ public class PartyUIManager : MonoBehaviour
     [Header("Источник данных о партии")]
     public PartyManager partyManager;
 
-    [Header("UI для инвентаря партии")]
-    [Tooltip("Текстовые поля для отображения сводки инвентаря каждого члена партии. Количество должно соответствовать макс. размеру партии.")]
-    public List<TextMeshProUGUI> memberInventorySummaryTexts = new List<TextMeshProUGUI>();
-
-    // Внутренние списки для управления созданными UI элементами и подписками
-    private List<PartyMemberUI> memberInfoUISlots = new List<PartyMemberUI>(); // Для слотов здоровья/опыта/атрибутов
-    private List<Inventory> trackedInventories = new List<Inventory>();      // Для инвентарей, на которые подписаны
+    [Header("Настройки подсветки")]
+    public Color activeMemberHighlightColor = Color.yellow;
+    
+    private List<PartyMemberUI> memberInfoUISlots = new List<PartyMemberUI>();
 
     void Start()
     {
@@ -33,40 +29,28 @@ public class PartyUIManager : MonoBehaviour
             }
         }
 
-        ValidatePrerequisites(); // Проверка остальных необходимых ссылок
+        ValidatePrerequisites();
 
-        CreatePartyInfoSlotsUI(); // Создаем UI для отображения здоровья, опыта, атрибутов
-        SetupInventorySummaryUI();  // Настраиваем UI для отображения сводки инвентарей
+        // Подписываемся на событие смены активного персонажа
+        partyManager.OnActiveMemberChanged += HandleActiveMemberChange;
+        
+        CreatePartyInfoSlotsUI();
+        
+        // Первоначальная подсветка
+        HandleActiveMemberChange(null, partyManager.ActiveMember);
     }
 
     private void ValidatePrerequisites()
     {
-        if (partyMemberSlotPrefab == null)
+        if (partyMemberSlotPrefab == null || partyMemberInfoContainer == null)
         {
-            Debug.LogError("PartyUIManager: Не назначен префаб слота информации о члене партии (partyMemberSlotPrefab)!", this);
-            enabled = false; // Отключаем менеджер, если основное не настроено
-            return;
-        }
-        if (partyMemberInfoContainer == null)
-        {
-            Debug.LogError("PartyUIManager: Не назначен контейнер для слотов информации (partyMemberInfoContainer)!", this);
+            Debug.LogError("PartyUIManager: Не назначены префабы или контейнеры для UI слотов партии!", this);
             enabled = false;
-            return;
-        }
-
-        if (memberInventorySummaryTexts.Count == 0)
-        {
-            Debug.LogWarning("PartyUIManager: Не назначены текстовые поля для сводки инвентаря (memberInventorySummaryTexts). Отображение инвентаря не будет работать.", this);
-        }
-        else if (partyManager != null && partyManager.partyMembers.Count > memberInventorySummaryTexts.Count)
-        {
-            Debug.LogWarning($"PartyUIManager: Количество текстовых полей для инвентаря ({memberInventorySummaryTexts.Count}) меньше, чем членов партии ({partyManager.partyMembers.Count}). Инвентарь не для всех будет отображен.", this);
         }
     }
 
     private void CreatePartyInfoSlotsUI()
     {
-        // Очищаем старые UI слоты информации о членах партии
         foreach (Transform child in partyMemberInfoContainer)
         {
             Destroy(child.gameObject);
@@ -87,14 +71,12 @@ public class PartyUIManager : MonoBehaviour
                 memberUIComponent.Setup(memberStats); 
                 memberInfoUISlots.Add(memberUIComponent);
 
-                // ----- НОВОЕ: Добавляем и настраиваем UIPartyMemberTargetDetector -----
                 UIPartyMemberTargetDetector targetDetector = slotInstance.GetComponent<UIPartyMemberTargetDetector>();
-                if (targetDetector == null) // Если его нет на префабе, добавляем
+                if (targetDetector == null)
                 {
                     targetDetector = slotInstance.AddComponent<UIPartyMemberTargetDetector>();
                 }
                 targetDetector.associatedMemberStats = memberStats;
-                // --------------------------------------------------------------------
             }
             else
             {
@@ -104,111 +86,45 @@ public class PartyUIManager : MonoBehaviour
         }
     }
 
-    private void SetupInventorySummaryUI()
+    private void HandleActiveMemberChange(CharacterStats oldMember, CharacterStats newMember)
     {
-        // Отписываемся от событий предыдущих отслеживаемых инвентарей
-        foreach (var inv in trackedInventories)
+        if (oldMember != null)
         {
-            if (inv != null) inv.OnInventoryChanged -= HandleAnyInventoryChanged;
-        }
-        trackedInventories.Clear();
-
-        if (partyManager == null || partyManager.partyMembers.Count == 0) return;
-
-        for (int i = 0; i < partyManager.partyMembers.Count; i++)
-        {
-            // Проверяем, есть ли текстовое поле UI для инвентаря этого члена партии
-            if (i < memberInventorySummaryTexts.Count && memberInventorySummaryTexts[i] != null)
+            var oldUI = memberInfoUISlots.Find(ui => ui.GetLinkedStats() == oldMember);
+            if (oldUI != null)
             {
-                CharacterStats member = partyManager.partyMembers[i];
-                if (member != null)
-                {
-                    Inventory memberInventory = member.GetComponent<Inventory>();
-                    if (memberInventory != null)
-                    {
-                        trackedInventories.Add(memberInventory);
-                        memberInventory.OnInventoryChanged += HandleAnyInventoryChanged; // Все подписываются на один обработчик
-                        UpdateSpecificInventorySummaryUI(memberInventory, memberInventorySummaryTexts[i]); // Первичное обновление
-                    }
-                    else
-                    {
-                        // Если у члена партии нет инвентаря, отображаем это
-                        memberInventorySummaryTexts[i].text = $"{member.gameObject.name}:\nИнвентарь отсутствует";
-                    }
-                }
-                // Если member == null, но текстовое поле есть, можно его очистить или скрыть
-                else if (memberInventorySummaryTexts[i] != null)
-                {
-                     memberInventorySummaryTexts[i].text = ""; // Очищаем, если члена партии нет
-                }
-            }
-            else if (i < memberInventorySummaryTexts.Count && memberInventorySummaryTexts[i] == null)
-            {
-                 Debug.LogWarning($"PartyUIManager: Текстовое поле для инвентаря члена партии {i} не назначено (null).", this);
+                oldUI.SetHighlight(false, activeMemberHighlightColor);
             }
         }
-    }
-
-    // Обработчик события изменения ЛЮБОГО из отслеживаемых инвентарей
-    private void HandleAnyInventoryChanged()
-    {
-        // Перебираем все отслеживаемые инвентари и обновляем соответствующий им UI
-        for (int i = 0; i < trackedInventories.Count; i++)
+        
+        if (newMember == null)
         {
-            if (i < memberInventorySummaryTexts.Count && // Есть ли UI элемент для этого индекса
-                trackedInventories[i] != null &&        // Есть ли отслеживаемый инвентарь для этого индекса
-                memberInventorySummaryTexts[i] != null) // Назначен ли сам UI Text элемент
+            foreach (var slot in memberInfoUISlots)
             {
-                UpdateSpecificInventorySummaryUI(trackedInventories[i], memberInventorySummaryTexts[i]);
-            }
-        }
-    }
-
-    // Обновление UI для конкретного инвентаря и его текстового поля
-    private void UpdateSpecificInventorySummaryUI(Inventory inventoryToDisplay, TextMeshProUGUI uiTextElement)
-    {
-        if (inventoryToDisplay == null || uiTextElement == null) return;
-
-        string summary = $"Инвентарь ({inventoryToDisplay.gameObject.name}):\n";
-        summary += $"Вес: {inventoryToDisplay.CurrentWeight:F1}/{inventoryToDisplay.MaxWeightCapacity} кг\n";
-        summary += $"Место: {inventoryToDisplay.CurrentGridOccupancy}/{inventoryToDisplay.totalGridCapacity} клеток\n";
-        summary += "Предметы:\n";
-
-        if (inventoryToDisplay.items.Count > 0)
-        {
-            foreach (var itemSlot in inventoryToDisplay.items)
-            {
-                if (itemSlot.itemData != null)
-                {
-                    summary += $"- {itemSlot.itemData.itemName} x{itemSlot.quantity} (Вес: {itemSlot.itemData.weight * itemSlot.quantity:F1})\n";
-                }
+                slot.SetHighlight(false, activeMemberHighlightColor);
             }
         }
         else
         {
-            summary += "- Пусто\n";
+            var newUI = memberInfoUISlots.Find(ui => ui.GetLinkedStats() == newMember);
+            if (newUI != null)
+            {
+                newUI.SetHighlight(true, activeMemberHighlightColor);
+            }
         }
-        uiTextElement.text = summary;
     }
 
-    // Метод для принудительного обновления всего UI, управляемого этим менеджером (например, после загрузки игры)
     public void RefreshAllPartyMemberUIs()
     {
-        Debug.Log("PartyUIManager: Refreshing all party member UIs.");
-        CreatePartyInfoSlotsUI();  // Пересоздаст слоты здоровья/опыта/атрибутов и их подписки
-        SetupInventorySummaryUI(); // Пересоздаст подписки для инвентарей и обновит их текст
+        // Этот метод теперь должен только пересоздавать слоты информации о партии
+        CreatePartyInfoSlotsUI();
     }
 
     void OnDestroy()
     {
-        // Отписываемся от событий инвентарей
-        foreach (var inv in trackedInventories)
+        if (partyManager != null)
         {
-            if (inv != null)
-            {
-                inv.OnInventoryChanged -= HandleAnyInventoryChanged;
-            }
+            partyManager.OnActiveMemberChanged -= HandleActiveMemberChange;
         }
-        // PartyMemberUI сами отписываются от событий CharacterStats в своем OnDestroy
     }
 }

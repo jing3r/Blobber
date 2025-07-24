@@ -1,5 +1,3 @@
-// Начало CharacterAbilities.cs
-
 using UnityEngine;
 using System.Collections.Generic;
 using System.Linq;
@@ -32,15 +30,13 @@ public class AbilitySlot
         currentCooldownTimer = abilityData.cooldown;
     }
 
-public void RestoreAllCharges()
-{
-    currentCharges = abilityData.maxCharges;
-    // currentCooldownTimer = 0; // Также можно сбросить кулдауны при отдыхе
-}
+    public void RestoreAllCharges()
+    {
+        currentCharges = abilityData.maxCharges;
+    }
 }
 
-
-public class CharacterAbilities : MonoBehaviour
+public class CharacterAbilities : MonoBehaviour, ISaveable
 {
     [Tooltip("Список способностей, которые персонаж знает изначально.")]
     public List<AbilityData> initialAbilities = new List<AbilityData>();
@@ -49,15 +45,13 @@ public class CharacterAbilities : MonoBehaviour
     public IReadOnlyList<AbilitySlot> LearnedAbilities => learnedAbilities.AsReadOnly();
 
     private CharacterStats characterStats;
-    public CharacterStats OwnerStats => characterStats; // Публичный геттер, если понадобится AbilityExecutor
+    public CharacterStats OwnerStats => characterStats;
 
     public event System.Action OnAbilitiesChanged;
 
     void Awake()
     {
         characterStats = GetComponent<CharacterStats>();
-        // if (characterStats == null) { Debug.LogWarning(...); } // Можно оставить
-
         foreach (AbilityData data in initialAbilities)
         {
             LearnAbility(data);
@@ -103,14 +97,7 @@ public class CharacterAbilities : MonoBehaviour
         {
             return learnedAbilities[index];
         }
-        // Debug.LogWarning($"Attempted to get ability slot by invalid index: {index}");
         return null;
-    }
-
-    public bool CanUseAbility(AbilityData ability)
-    {
-        AbilitySlot slot = GetAbilitySlot(ability);
-        return CanUseAbility(slot); // Делегируем
     }
 
     public bool CanUseAbility(AbilitySlot slot)
@@ -118,90 +105,106 @@ public class CharacterAbilities : MonoBehaviour
         if (slot != null)
         {
             return slot.IsReady();
-            // + Проверка ресурсов в будущем
         }
         return false;
     }
 
-    /// <summary>
-    /// Помечает способность как использованную (заряды, кулдаун) и вызывает ее исполнение.
-    /// </summary>
-    /// <param name="slot">Слот способности для использования.</param>
-    /// <param name="caster">CharacterStats того, кто использует способность.</param>
-    /// <param name="primaryTarget">Основная Transform цель (для Single_Creature, Single_Interactable).</param>
-    /// <param name="pointTarget">Точка применения (для Point_AreaEffect).</param>
-    /// <returns>True, если способность была успешно инициирована.</returns>
-    public bool TryUseAbility(
-        AbilitySlot slot,
-        CharacterStats caster,
-        FeedbackManager feedbackMgr,
-        Transform targetTransformForAbility, // Переименовал для ясности (это может быть существо или интерактивный объект)
-        Vector3 pointForAbility,             // Точка применения для AoE или позиция цели
-        AbilityData sourceAbilityRef)        // Ссылка на AbilityData для передачи в Executor
+public bool TryUseAbility(
+    AbilitySlot slot,
+    CharacterStats caster,
+    FeedbackManager feedbackMgr,
+    Transform targetTransformForAbility,
+    Vector3 pointForAbility,
+    AbilityData sourceAbilityRef)
+{
+    if (slot == null || caster == null || !CanUseAbility(slot))
     {
-        if (slot == null || caster == null) // feedbackMgr может быть null, если не назначен
-        {
-            Debug.LogError("TryUseAbility: Slot or Caster is null.");
-            return false;
-        }
+        return false;
+    }
 
-        // Проверка CanUseAbility уже должна была быть сделана в AbilityCastingSystem
-        // Но для надежности можно добавить еще раз, хотя это приведет к дублированию сообщения об ошибке.
-        // if (!CanUseAbility(slot))
-        // {
-        //     // Сообщение уже дано в AbilityCastingSystem
-        //     return false;
-        // }
+    // ТЕПЕРЬ МЫ ТРАТИМ ЗАРЯД ЗДЕСЬ, В МОМЕНТ ИСПОЛНЕНИЯ
+    slot.Use();
 
-        // Действия по использованию способности (трата заряда, запуск кулдауна)
-        slot.Use();
+    if (sourceAbilityRef.castSound != null)
+    {
+        AudioSource audioSource = caster.GetComponent<AudioSource>();
+        if (audioSource == null) audioSource = caster.gameObject.AddComponent<AudioSource>();
+        if (audioSource != null) audioSource.PlayOneShot(sourceAbilityRef.castSound);
+    }
 
-        // Воспроизводим звук каста
-        if (sourceAbilityRef.castSound != null) // Берем из sourceAbilityRef (он же slot.abilityData)
-        {
-            AudioSource audioSource = caster.GetComponent<AudioSource>();
-            if (audioSource == null) audioSource = caster.gameObject.AddComponent<AudioSource>();
-            //TODO: Настроить AudioSource более гибко (громкость, микшер и т.д.)
-            if (audioSource != null) audioSource.PlayOneShot(sourceAbilityRef.castSound);
-        }
-
-        // Воспроизводим VFX на кастующем
         if (sourceAbilityRef.startVFXPrefab != null)
         {
             Instantiate(sourceAbilityRef.startVFXPrefab, caster.transform.position, caster.transform.rotation, caster.transform);
         }
 
-        // Определяем CharacterStats цели, если это возможно, из targetTransformForAbility
         CharacterStats primarySingleTargetStats = null;
         if (targetTransformForAbility != null)
         {
             primarySingleTargetStats = targetTransformForAbility.GetComponent<CharacterStats>();
         }
 
-        // Вызываем исполнителя эффектов способности
         AbilityExecutor.Execute(
             caster,
-            sourceAbilityRef, // Передаем sourceAbilityRef (он же slot.abilityData)
+            sourceAbilityRef,
             primarySingleTargetStats,
             targetTransformForAbility,
             pointForAbility,
             feedbackMgr
         );
 
-        OnAbilitiesChanged?.Invoke(); // Уведомляем UI и другие системы об изменении состояния способностей
-        return true; // Способность была инициирована (заряды/кд обработаны)
+        OnAbilitiesChanged?.Invoke();
+        return true;
     }
-
 
     public void RestoreAllAbilityCharges()
     {
         foreach (AbilitySlot slot in learnedAbilities)
         {
-            slot.RestoreAllCharges(); // Убедимся, что AbilitySlot.RestoreAllCharges() есть
+            slot.RestoreAllCharges();
         }
         OnAbilitiesChanged?.Invoke();
-        // Debug.Log($"{gameObject.name}: All ability charges restored.");
     }
-}
+    
+    #region SaveSystem
+    
+    public object CaptureState()
+    {
+        var abilitiesState = new List<AbilitySaveData>();
+        foreach (var slot in learnedAbilities)
+        {
+            if (slot.abilityData == null) continue;
+            
+            abilitiesState.Add(new AbilitySaveData
+            {
+                abilityDataName = slot.abilityData.name,
+                currentCharges = slot.currentCharges
+            });
+        }
+        return abilitiesState;
+    }
 
-// Конец CharacterAbilities.cs
+    public void RestoreState(object state)
+    {
+        if (state is List<AbilitySaveData> abilitiesState)
+        {
+            foreach (var savedAbility in abilitiesState)
+            {
+                var slot = learnedAbilities.FirstOrDefault(s => s.abilityData != null && s.abilityData.name == savedAbility.abilityDataName);
+                if (slot != null)
+                {
+                    slot.currentCharges = savedAbility.currentCharges;
+                }
+            }
+            OnAbilitiesChanged?.Invoke();
+        }
+    }
+/// <summary>
+/// Принудительно вызывает событие OnAbilitiesChanged.
+/// Используется после загрузки для обновления UI.
+/// </summary>
+public void TriggerAbilitiesChanged()
+{
+    OnAbilitiesChanged?.Invoke();
+}
+    #endregion
+}

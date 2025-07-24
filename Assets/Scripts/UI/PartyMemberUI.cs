@@ -1,48 +1,99 @@
 using UnityEngine;
 using TMPro;
+using UnityEngine.UI;
 
 public class PartyMemberUI : MonoBehaviour
 {
     [Header("UI Elements")]
-    [Tooltip("Текстовое поле для отображения имени и здоровья.")]
     public TextMeshProUGUI healthText;
-    [Tooltip("Текстовое поле для отображения уровня и опыта.")]
     public TextMeshProUGUI experienceText;
-    [Tooltip("Текстовое поле для отображения атрибутов.")]
     public TextMeshProUGUI attributesText;
+    public Image highlightImage; // Для подсветки активного
+    public Image stateIndicatorImage; // Для индикации Ready/Recovery
+
+    [Header("Настройки")]
+    public Color readyColor = Color.green;
+    public Color recoveryColor = Color.gray;
 
     private CharacterStats linkedStats;
+    private CharacterActionController linkedActionController;
+    private Color originalHighlightColor;
+
+    void Awake()
+    {
+        if (highlightImage != null)
+        {
+            originalHighlightColor = highlightImage.color;
+        }
+    }
+    
+    void OnDestroy()
+    {
+        if (linkedStats != null)
+        {
+            // Отписываемся от всех событий
+            linkedStats.onHealthChanged.RemoveListener(UpdateHealthUI);
+            linkedStats.onExperienceChanged -= UpdateExperienceUI;
+            linkedStats.onLevelUp -= UpdateLevelUI;
+            linkedStats.onAttributesChanged -= UpdateAttributesUI;
+        }
+        if (linkedActionController != null)
+        {
+            linkedActionController.OnStateChanged -= UpdateActionStateUI;
+        }
+    }
 
     public void Setup(CharacterStats statsToLink)
     {
         linkedStats = statsToLink;
         if (linkedStats == null)
         {
-            Debug.LogError($"PartyMemberUI ({gameObject.name}): Attempted to setup with null CharacterStats! Disabling UI slot.", this);
             gameObject.SetActive(false);
             return;
         }
+        
+        linkedActionController = linkedStats.GetComponent<CharacterActionController>();
 
         // Подписка на события
         linkedStats.onHealthChanged.AddListener(UpdateHealthUI);
         linkedStats.onExperienceChanged += UpdateExperienceUI;
         linkedStats.onLevelUp += UpdateLevelUI;
         linkedStats.onAttributesChanged += UpdateAttributesUI;
+        
+        if (linkedActionController != null)
+        {
+            linkedActionController.OnStateChanged += UpdateActionStateUI;
+        }
 
-        // Первоначальное обновление всех UI элементов
         UpdateAllUI();
+    }
+    
+    public CharacterStats GetLinkedStats() { return linkedStats; }
 
-        // Опционально: gameObject.name = $"UI Slot for {linkedStats.gameObject.name}";
+    public void SetHighlight(bool isHighlighted, Color highlightColor)
+    {
+        if (highlightImage == null) return;
+        highlightImage.color = isHighlighted ? highlightColor : originalHighlightColor;
+    }
+    
+    // --- НОВЫЙ МЕТОД ---
+    private void UpdateActionStateUI(CharacterActionController.ActionState newState)
+    {
+        if (stateIndicatorImage == null) return;
+        
+        stateIndicatorImage.color = (newState == CharacterActionController.ActionState.Ready) ? readyColor : recoveryColor;
     }
 
     private void UpdateAllUI()
     {
-        if (linkedStats == null) return; // Если статы отсоединились, ничего не обновляем
-
+        if (linkedStats == null) return;
         UpdateHealthUI(linkedStats.currentHealth, linkedStats.maxHealth);
-        // UpdateLevelUI вызывает UpdateExperienceUI, а также UpdateAttributesUI
-        UpdateLevelUI(linkedStats.level); // Это обновит и опыт, и атрибуты через цепочку вызовов
-        // UpdateAttributesUI(); // Этот вызов уже будет сделан из UpdateLevelUI
+        UpdateLevelUI(linkedStats.level);
+        UpdateAttributesUI();
+        if (linkedActionController != null)
+        {
+            UpdateActionStateUI(linkedActionController.CurrentState);
+        }
     }
 
     private void UpdateHealthUI(int currentHealth, int maxHealth)
@@ -71,23 +122,12 @@ public class PartyMemberUI : MonoBehaviour
     {
         if (attributesText == null || linkedStats == null) return;
 
-        string attrSummary = "Атрибуты:\n";
-        attrSummary += $"Тело: {linkedStats.CurrentBody} (Баз: {linkedStats.baseBody})\n";
-        attrSummary += $"Разум: {linkedStats.CurrentMind} (Баз: {linkedStats.baseMind})\n";
-        attrSummary += $"Дух: {linkedStats.CurrentSpirit} (Баз: {linkedStats.baseSpirit})\n";
-        attrSummary += $"Ловкость: {linkedStats.CurrentAgility} (Баз: {linkedStats.baseAgility})\n";
-        attrSummary += $"Проф.: {linkedStats.CurrentProficiency} (Баз: {linkedStats.baseProficiency})";
+        string attrSummary = "Attributes:\n";
+        attrSummary += $"Body: {linkedStats.CurrentBody} (Base: {linkedStats.baseBody})\n";
+        attrSummary += $"Mind: {linkedStats.CurrentMind} (Base: {linkedStats.baseMind})\n";
+        attrSummary += $"Spirit: {linkedStats.CurrentSpirit} (Base: {linkedStats.baseSpirit})\n";
+        attrSummary += $"Agility: {linkedStats.CurrentAgility} (Base: {linkedStats.baseAgility})\n";
+        attrSummary += $"Prof.: {linkedStats.CurrentProficiency} (Base: {linkedStats.baseProficiency})";
         attributesText.text = attrSummary;
-    }
-
-    void OnDestroy()
-    {
-        if (linkedStats != null)
-        {
-            linkedStats.onHealthChanged.RemoveListener(UpdateHealthUI);
-            linkedStats.onExperienceChanged -= UpdateExperienceUI;
-            linkedStats.onLevelUp -= UpdateLevelUI;
-            linkedStats.onAttributesChanged -= UpdateAttributesUI;
-        }
     }
 }

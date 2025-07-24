@@ -114,7 +114,7 @@
                     "initialStateCheck": false
                 },
                 {
-                    "name": "Ability 1",
+                    "name": "Character 1",
                     "type": "Button",
                     "id": "2b94a367-c449-4627-861a-47bdf0d65fd8",
                     "expectedControlType": "Button",
@@ -123,7 +123,7 @@
                     "initialStateCheck": false
                 },
                 {
-                    "name": "Ability 2",
+                    "name": "Character 2",
                     "type": "Button",
                     "id": "7d80626b-1221-44a6-9e47-0e52d906e3d3",
                     "expectedControlType": "Button",
@@ -132,7 +132,7 @@
                     "initialStateCheck": false
                 },
                 {
-                    "name": "Ability 3",
+                    "name": "Character 3",
                     "type": "Button",
                     "id": "b56ddac4-e880-4844-adf7-ac00b83a4a7d",
                     "expectedControlType": "Button",
@@ -141,7 +141,7 @@
                     "initialStateCheck": false
                 },
                 {
-                    "name": "Ability 4",
+                    "name": "Character 4",
                     "type": "Button",
                     "id": "17012009-a734-41c8-90ca-299964a11a32",
                     "expectedControlType": "Button",
@@ -150,7 +150,7 @@
                     "initialStateCheck": false
                 },
                 {
-                    "name": "Ability 5",
+                    "name": "Character 5",
                     "type": "Button",
                     "id": "f1fc2030-d121-415f-874e-4211643b1afa",
                     "expectedControlType": "Button",
@@ -159,7 +159,7 @@
                     "initialStateCheck": false
                 },
                 {
-                    "name": "Ability 6",
+                    "name": "Character 6",
                     "type": "Button",
                     "id": "e4163281-42c2-46bf-8a4a-e5658b472444",
                     "expectedControlType": "Button",
@@ -168,7 +168,61 @@
                     "initialStateCheck": false
                 },
                 {
-                    "name": "Ability 7",
+                    "name": "Ability1",
+                    "type": "Button",
+                    "id": "be9fef58-f899-4dcc-834d-8d60939b5a6a",
+                    "expectedControlType": "Button",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": false
+                },
+                {
+                    "name": "Ability2",
+                    "type": "Button",
+                    "id": "6749f808-d490-438f-82b2-8229ef71132c",
+                    "expectedControlType": "Button",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": false
+                },
+                {
+                    "name": "Ability3",
+                    "type": "Button",
+                    "id": "88d11570-b1e5-4678-baf5-56ee54ff72c0",
+                    "expectedControlType": "Button",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": false
+                },
+                {
+                    "name": "Ability4",
+                    "type": "Button",
+                    "id": "5e9c5aa9-b76f-4740-9e8d-853dc22493ef",
+                    "expectedControlType": "Button",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": false
+                },
+                {
+                    "name": "Ability5",
+                    "type": "Button",
+                    "id": "24268e3b-7dbc-439b-9f6f-4418764abcee",
+                    "expectedControlType": "Button",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": false
+                },
+                {
+                    "name": "Ability6",
+                    "type": "Button",
+                    "id": "ff27c710-4570-4017-8de4-0ddf6878bb34",
+                    "expectedControlType": "Button",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": false
+                },
+                {
+                    "name": "Ability7",
                     "type": "Button",
                     "id": "2bae8d08-be1d-47f3-991e-711429613831",
                     "expectedControlType": "Button",
@@ -177,7 +231,7 @@
                     "initialStateCheck": false
                 },
                 {
-                    "name": "Ability 8",
+                    "name": "Ability8",
                     "type": "Button",
                     "id": "2bb73a2a-d489-42f2-947d-eafa07a90790",
                     "expectedControlType": "Button",
@@ -186,7 +240,7 @@
                     "initialStateCheck": false
                 },
                 {
-                    "name": "Ability 9",
+                    "name": "Ability9",
                     "type": "Button",
                     "id": "110458ab-f3fa-418d-a0bd-25ab323b67ae",
                     "expectedControlType": "Button",
@@ -195,9 +249,72 @@
                     "initialStateCheck": false
                 },
                 {
-                    "name": "Ability 10",
+                    "name": "Ability10",
                     "type": "Button",
                     "id": "c0b925ed-c4a7-4f6c-9d35-548eb3a22596",
+                    "expectedControlType": "Button",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": false
+                },
+                {
+                    "name": "Ability11",
+                    "type": "Button",
+                    "id": "da65418d-e83c-4ff1-bc69-5d4277f7acec",
+                    "expectedControlType": "Button",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": false
+                },
+                {
+                    "name": "Ability12",
+                    "type": "Button",
+                    "id": "78cae674-cbbc-46e0-a1bb-92807d631955",
+                    "expectedControlType": "Button",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": false
+                },
+                {
+                    "name": "CycleCharacter",
+                    "type": "Button",
+                    "id": "0f374528-70ad-4d8c-9e8b-2c6f1914bb27",
+                    "expectedControlType": "Button",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": false
+                },
+                {
+                    "name": "ToggleAllInventories",
+                    "type": "Button",
+                    "id": "3f074801-e892-488b-8df7-f52306119e2d",
+                    "expectedControlType": "Button",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": false
+                },
+                {
+                    "name": "TakeAll",
+                    "type": "Button",
+                    "id": "ab4fff62-815a-4f5f-873e-594cfbefd79a",
+                    "expectedControlType": "Button",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": false
+                },
+                {
+                    "name": "ArrangeInventory",
+                    "type": "Button",
+                    "id": "5ed304b9-00b2-466f-92d0-b8248bb10b4c",
+                    "expectedControlType": "Button",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": false
+                },
+                {
+                    "name": "Cancel",
+                    "type": "Button",
+                    "id": "b3473ea5-c2e9-4b94-86c9-4a3d123ade38",
                     "expectedControlType": "Button",
                     "processors": "",
                     "interactions": "",
@@ -410,7 +527,7 @@
                     "interactions": "",
                     "processors": "",
                     "groups": "",
-                    "action": "Ability 1",
+                    "action": "Character 1",
                     "isComposite": false,
                     "isPartOfComposite": false
                 },
@@ -421,7 +538,7 @@
                     "interactions": "",
                     "processors": "",
                     "groups": "",
-                    "action": "Ability 2",
+                    "action": "Character 2",
                     "isComposite": false,
                     "isPartOfComposite": false
                 },
@@ -432,7 +549,7 @@
                     "interactions": "",
                     "processors": "",
                     "groups": "",
-                    "action": "Ability 3",
+                    "action": "Character 3",
                     "isComposite": false,
                     "isPartOfComposite": false
                 },
@@ -443,7 +560,7 @@
                     "interactions": "",
                     "processors": "",
                     "groups": "",
-                    "action": "Ability 4",
+                    "action": "Character 4",
                     "isComposite": false,
                     "isPartOfComposite": false
                 },
@@ -454,7 +571,7 @@
                     "interactions": "",
                     "processors": "",
                     "groups": "",
-                    "action": "Ability 5",
+                    "action": "Character 5",
                     "isComposite": false,
                     "isPartOfComposite": false
                 },
@@ -465,7 +582,7 @@
                     "interactions": "",
                     "processors": "",
                     "groups": "",
-                    "action": "Ability 6",
+                    "action": "Character 6",
                     "isComposite": false,
                     "isPartOfComposite": false
                 },
@@ -476,7 +593,7 @@
                     "interactions": "",
                     "processors": "",
                     "groups": "",
-                    "action": "Ability 7",
+                    "action": "Ability7",
                     "isComposite": false,
                     "isPartOfComposite": false
                 },
@@ -487,7 +604,7 @@
                     "interactions": "",
                     "processors": "",
                     "groups": "",
-                    "action": "Ability 8",
+                    "action": "Ability8",
                     "isComposite": false,
                     "isPartOfComposite": false
                 },
@@ -498,7 +615,7 @@
                     "interactions": "",
                     "processors": "",
                     "groups": "",
-                    "action": "Ability 9",
+                    "action": "Ability9",
                     "isComposite": false,
                     "isPartOfComposite": false
                 },
@@ -509,7 +626,150 @@
                     "interactions": "",
                     "processors": "",
                     "groups": "",
-                    "action": "Ability 10",
+                    "action": "Ability10",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "a9c51111-a083-4035-948b-1f529cd61b1d",
+                    "path": "<Keyboard>/q",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "Ability1",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "dcc72559-64ef-472b-84e4-1bdda3e165ea",
+                    "path": "<Keyboard>/z",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "Ability2",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "3b30e6f7-103e-4621-9fdd-0d86ea5f6451",
+                    "path": "<Keyboard>/x",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "Ability3",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "c2af5be7-840d-46e5-800d-aa74a1cbb59e",
+                    "path": "<Keyboard>/c",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "Ability4",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "62b0c70f-2991-4364-bb97-2d9baf96b55e",
+                    "path": "<Keyboard>/v",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "Ability5",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "bfb1496d-1bb4-4caf-803b-3fa953a7295a",
+                    "path": "<Keyboard>/b",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "Ability6",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "cd6acae5-ac06-4371-a75c-5ede501c077a",
+                    "path": "<Keyboard>/u",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "Ability11",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "f707bbe5-167b-4e7d-8a24-4bc03451d997",
+                    "path": "<Keyboard>/u",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "Ability12",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "922eb515-adb0-45d1-8d5e-0f3109ec013b",
+                    "path": "<Keyboard>/tab",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "CycleCharacter",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "887b6b4b-56d8-47be-a32f-2512996821eb",
+                    "path": "<Keyboard>/i",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "ToggleAllInventories",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "900c8c8b-c7bf-4a07-9fa1-eb744016ac89",
+                    "path": "<Keyboard>/g",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "TakeAll",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "fda5930a-21e3-4afa-8096-9d74a3b21ab6",
+                    "path": "<Keyboard>/n",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "ArrangeInventory",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "760a4053-b6b7-4bce-8ceb-e777206f598c",
+                    "path": "<Keyboard>/escape",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "Cancel",
                     "isComposite": false,
                     "isPartOfComposite": false
                 }

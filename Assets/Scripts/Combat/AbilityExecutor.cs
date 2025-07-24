@@ -71,43 +71,36 @@ public static class AbilityExecutor
         }
         
         // --- Применение эффектов и обработка фидбека ---
+        string finalFeedback = null;
+
         foreach (AbilityEffectData effectData in ability.effectsToApply)
         {
-            EffectResult result = effectData.ApplyEffect(caster, ability, primarySingleTarget, primaryInteractableTarget, pointForEffectApplication, ref targetsInAreaForAoE);
-
-            if (!result.WasApplied) continue;
-
-            string feedbackMessage = null;
+            string currentFeedback = effectData.ApplyEffect(caster, ability, primarySingleTarget, primaryInteractableTarget, pointForEffectApplication, ref targetsInAreaForAoE);
             
-            // --- НОВАЯ ПРОВЕРКА на UseSimpleCasterFeedback ---
-            if (result.UseSimpleCasterFeedback)
+            if (!string.IsNullOrEmpty(currentFeedback))
             {
-                feedbackMessage = $"{caster.name} uses {ability.abilityName}.";
+                finalFeedback = currentFeedback;
             }
-            else
+        }
+        
+        // --- НОВОЕ: Проверка на отсутствие эффекта ---
+        // Если после всех эффектов фидбек остался null, значит, ни один эффект не нашел свою цель.
+        // Это актуально для способностей, у которых только один эффект (как Flashbang).
+        if (finalFeedback == null)
+        {
+            // Проверяем, что это не способность на себя, для которой отсутствие фидбека - норма.
+            if (ability.targetType == TargetType.AreaAroundCaster || ability.targetType == TargetType.Point_GroundTargeted)
             {
-                // Стандартная обработка
-                switch (result.EffectType)
-                {
-                    case "Telekinesis":
-                        feedbackMessage = FeedbackGenerator.TelekinesisInteract(result.TargetName);
-                        break;
-                    case "PlacementSuccess":
-                        feedbackMessage = $"{caster.name} {result.TargetName} a {ability.abilityName}.";
-                        break;
-                    case "PlacementFailed":
-                        feedbackMessage = $"Cannot place {ability.abilityName} there.";
-                        break;
-                    default: 
-                        feedbackMessage = FeedbackGenerator.GenerateFeedback(ability, result);
-                        break;
-                }
+                finalFeedback = $"{ability.abilityName} did not affect any targets.";
             }
-            
-            if (!string.IsNullOrEmpty(feedbackMessage))
-            {
-                feedbackManager?.ShowFeedbackMessage(feedbackMessage);
-            }
+            // Для Single_Target способностей сообщение "Target not found" выдается раньше, в AbilityCastingSystem,
+            // поэтому здесь дополнительная проверка не нужна.
+        }
+
+        // Показываем финальное сообщение.
+        if (!string.IsNullOrEmpty(finalFeedback))
+        {
+            feedbackManager?.ShowFeedbackMessage(finalFeedback);
         }
     }
 }

@@ -1,3 +1,4 @@
+
 using UnityEngine;
 using TMPro;
 using System.Collections;
@@ -13,40 +14,41 @@ public class FeedbackManager : MonoBehaviour
     public float feedbackDuration = 2.0f;
 
     private Coroutine feedbackCoroutine;
-    private PlayerGlobalActions playerActions; // Ссылка для получения информации о наведении
+    
+    // --- ИЗМЕНЕНИЕ: Ссылка на InputManager вместо PlayerGlobalActions ---
+    private InputManager inputManager;
+    // --- НОВОЕ: Ссылка на TargetingSystem для получения информации о цели ---
+    private TargetingSystem targetingSystem;
+    private PartyManager partyManager;
 
     void Awake()
     {
         if (promptText == null)
         {
             Debug.LogError("FeedbackManager: TextMeshProUGUI (promptText) не назначен!", this);
-            enabled = false; // Отключаем, если нет основного UI элемента
+            enabled = false;
             return;
         }
-        promptText.text = ""; // Очищаем при старте
+        promptText.text = "";
 
-        // Находим PlayerGlobalActions для доступа к логике наведения
-        // Предполагается, что они на одном объекте Player или PlayerGlobalActions легко доступен
-        playerActions = GetComponent<PlayerGlobalActions>(); // Если они на одном объекте
-        if (playerActions == null)
+        // Находим InputManager на объекте игрока
+        inputManager = FindObjectOfType<InputManager>();
+        targetingSystem = FindObjectOfType<TargetingSystem>();
+        partyManager = FindObjectOfType<PartyManager>();
+
+        if (inputManager == null)
         {
-             // Попробуем найти на родительском, если FeedbackManager будет дочерним
-             playerActions = GetComponentInParent<PlayerGlobalActions>();
-        }
-        if (playerActions == null)
-        {
-            Debug.LogWarning("FeedbackManager: Не удалось найти PlayerGlobalActions. Обновление информации о наведении может не работать.", this);
+            Debug.LogWarning("FeedbackManager: Не удалось найти InputManager. Обновление информации о наведении не будет работать.", this);
         }
     }
 
     void Update()
     {
         // Если сейчас не показывается временный фидбек, обновляем информацию о наведении
-        if (feedbackCoroutine == null && playerActions != null) // Проверяем playerActions
+        if (feedbackCoroutine == null)
         {
-            // Запрашиваем у PlayerGlobalActions, какой текст сейчас должен быть для наведения
-            string hoverInfo = playerActions.GetCurrentHoverInfo();
-            if (promptText.text != hoverInfo) // Обновляем только если текст изменился
+            string hoverInfo = GetCurrentHoverInfo();
+            if (promptText.text != hoverInfo)
             {
                 promptText.text = hoverInfo;
             }
@@ -68,14 +70,9 @@ public class FeedbackManager : MonoBehaviour
     private IEnumerator ClearFeedbackAfterDelay()
     {
         yield return new WaitForSeconds(feedbackDuration);
-        // После показа фидбека, UI в Update сам обновит информацию о наведении
         feedbackCoroutine = null;
-        // Не нужно явно вызывать UpdateHoverInfo здесь, Update сам справится
     }
 
-    /// <summary>
-    /// Останавливает текущую корутину фидбека, если она активна.
-    /// </summary>
     public void StopCurrentFeedback()
     {
         if (feedbackCoroutine != null)
@@ -83,5 +80,51 @@ public class FeedbackManager : MonoBehaviour
             StopCoroutine(feedbackCoroutine);
             feedbackCoroutine = null;
         }
+    }
+
+    // --- НОВЫЙ МЕТОД: Логика отображения информации о цели, перенесенная сюда ---
+    private string GetCurrentHoverInfo()
+    {
+        if (targetingSystem == null || partyManager == null) return "";
+        
+        // Используем настройки из InputManager или PlayerGlobalActions, нужна общая точка
+        // Пока возьмем дефолтные значения
+        float checkDistance = 15f; 
+        LayerMask checkLayerMask = ~0; // Все слои
+
+        if (targetingSystem.TryGetTarget(checkDistance, checkLayerMask, out RaycastHit hitInfo))
+        {
+            CharacterStats character = hitInfo.collider.GetComponent<CharacterStats>();
+            Interactable interactable = hitInfo.collider.GetComponent<Interactable>();
+
+            if (character != null && !partyManager.partyMembers.Contains(character))
+            {
+                if (!character.IsDead)
+                {
+                    AIController npcCtrl = character.GetComponent<AIController>();
+                    string alignmentText = npcCtrl != null ? $" ({npcCtrl.currentAlignment})" : "";
+                    string previewText = $"{character.gameObject.name}{alignmentText} (HP: {character.currentHealth}/{character.maxHealth})";
+                    
+                    CharacterStats attacker = partyManager.ActiveMember;
+                    if (attacker != null && !attacker.IsDead)
+                    {
+                        int hitChance = Mathf.Clamp(70 + attacker.AgilityHitBonusPercent - character.AgilityEvasionBonusPercent, 10, 95);
+                        previewText += $" (Hit: {hitChance}%)";
+                    }
+                    return previewText;
+                }
+                else
+                {
+                    return interactable?.interactionPrompt ?? $"{character.gameObject.name} (Defeated)";
+                }
+            }
+            
+            if (interactable != null)
+            {
+                return interactable.interactionPrompt;
+            }
+        }
+
+        return "";
     }
 }

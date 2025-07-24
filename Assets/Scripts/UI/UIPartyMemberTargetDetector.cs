@@ -3,23 +3,30 @@ using UnityEngine.EventSystems;
 
 public class UIPartyMemberTargetDetector : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
 {
-    public CharacterStats associatedMemberStats; // Устанавливается из PartyUIManager
+    public CharacterStats associatedMemberStats;
+    private InputManager inputManager; // Ссылка на новый менеджер
+
+    void Start()
+    {
+        // Находим InputManager один раз
+        inputManager = FindObjectOfType<InputManager>();
+    }
 
     public void OnPointerEnter(PointerEventData eventData)
     {
-        if (AbilityCastingSystem.Instance != null) // Проверяем, что Instance существует
+        if (inputManager != null)
         {
-            AbilityCastingSystem.Instance.SetHoveredPartyMember(associatedMemberStats);
+            // Сообщаем InputManager, что мы навели курсор на этого члена партии
+            inputManager.SetHoveredPartyMember(associatedMemberStats);
         }
-        // Debug.Log("Hovering over: " + (associatedMemberStats != null ? associatedMemberStats.gameObject.name : "null"));
     }
 
     public void OnPointerExit(PointerEventData eventData)
     {
-        if (AbilityCastingSystem.Instance != null) // Проверяем, что Instance существует
+        if (inputManager != null)
         {
-            AbilityCastingSystem.Instance.ClearHoveredPartyMemberIfCurrent(associatedMemberStats);
+            // Сообщаем, что курсор ушел с этого члена партии
+            inputManager.ClearHoveredPartyMember(associatedMemberStats);
         }
-        // Debug.Log("Exited: " + (associatedMemberStats != null ? associatedMemberStats.gameObject.name : "null"));
     }
 }

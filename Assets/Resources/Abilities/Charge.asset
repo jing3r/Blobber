@@ -20,10 +20,10 @@ MonoBehaviour:
   range: 0
   areaOfEffectRadius: 0
   affectsSelfInAoe: 0
-  affectsPartyMembersInAoe: 1
+  affectsPartyMembersInAoe: 0
   affectsAlliesInAoe: 0
   affectsNeutralsInAoe: 0
-  affectsEnemiesInAoe: 1
+  affectsEnemiesInAoe: 0
   cooldown: 1
   maxCharges: 30
   castTime: 0

@@ -97,7 +97,19 @@ public static class FeedbackGenerator
             }
         }
     }
+    public static string GenerateAttackFeedback(EffectResult result, string casterName)
+    {
+        if (!result.WasApplied || !result.IsSingleTarget) return null;
 
+        if (result.TargetsAffected > 0) // Попадание
+        {
+            return $"{casterName} hits {result.TargetName} ({Mathf.CeilToInt(result.TotalValue)} damage).";
+        }
+        else // Промах
+        {
+            return $"{casterName} misses {result.TargetName}.";
+        }
+    }
     public static string TelekinesisInteract(string message)
     {
         return string.IsNullOrEmpty(message) ? "Telekinesis: Nothing happened." : message;

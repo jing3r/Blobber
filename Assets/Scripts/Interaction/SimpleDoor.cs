@@ -1,22 +1,23 @@
+// SimpleDoor.cs
+
 using UnityEngine;
 
-public class SimpleDoor : Interactable
+public class SimpleDoor : Interactable, ISaveable
 {
     [Tooltip("Сообщение после успешного взаимодействия (открытия).")]
-    public string interactionFeedback = "Дверь открыта";
+    public string interactionFeedback = "The door is opened";
     [Tooltip("Сообщение, если дверь уже открыта.")]
-    public string alreadyOpenFeedback = "Дверь уже открыта";
+    public string alreadyOpenFeedback = "The door is already open";
 
     private bool isOpen = false;
-
+    
     public override string Interact()
     {
         if (!isOpen)
         {
-            // Здесь может быть логика анимации, звука и т.д.
-            // gameObject.SetActive(false); // Если дверь должна исчезнуть
-            // transform.Rotate(0, 90, 0); // Если дверь должна повернуться
             isOpen = true;
+            // Здесь в будущем будет логика анимации, звука и т.д.
+            // Никаких отключений коллайдеров или других "физических" изменений здесь.
             return interactionFeedback;
         }
         else
@@ -24,4 +25,36 @@ public class SimpleDoor : Interactable
             return alreadyOpenFeedback;
         }
     }
+
+    #region SaveSystem
+    
+    [System.Serializable]
+    private struct DoorSaveData
+    {
+        public bool isOpenState;
+    }
+
+    public object CaptureState()
+    {
+        return new DoorSaveData
+        {
+            isOpenState = this.isOpen
+        };
+    }
+
+    public void RestoreState(object state)
+    {
+        if (state is DoorSaveData saveData)
+        {
+            this.isOpen = saveData.isOpenState;
+
+            // Если нужно визуально отобразить открытое состояние после загрузки,
+            // код для этого должен быть здесь. Например:
+            // if (this.isOpen) {
+            //     GetComponent<MeshRenderer>().material.color = Color.green; // Пример
+            // }
+        }
+    }
+
+    #endregion
 }
