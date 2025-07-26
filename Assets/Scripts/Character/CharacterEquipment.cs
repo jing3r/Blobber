@@ -1,169 +1,248 @@
+using System;
 using System.Collections.Generic;
 using UnityEngine;
-using System;
+using System.Linq;
 
-[RequireComponent(typeof(CharacterStats))] 
+/// <summary>
+/// Управляет экипированными предметами персонажа.
+/// Взаимодействует с Inventory для перемещения предметов и с CharacterStats для применения модификаторов.
+/// </summary>
+[RequireComponent(typeof(CharacterStats))]
 [RequireComponent(typeof(Inventory))]
 public class CharacterEquipment : MonoBehaviour
 {
-    // Словарь для хранения экипированных предметов
-    private Dictionary<EquipmentSlotType, InventoryItem> equippedItems = new Dictionary<EquipmentSlotType, InventoryItem>();
-    
+    private readonly Dictionary<EquipmentSlotType, InventoryItem> equippedItems = new Dictionary<EquipmentSlotType, InventoryItem>();
     private Inventory characterInventory;
-
-    // Событие для обновления UI
+    /// <summary>
+    /// Суммарный вес всех экипированных предметов.
+    /// </summary>
+    public float CurrentWeight => equippedItems.Values
+        .Where(item => item != null)
+        .Distinct() // Убираем дубликаты для двуручных предметов
+        .Sum(item => item.ItemData.Weight * item.Quantity);
     public event Action<EquipmentSlotType, InventoryItem> OnEquipmentChanged;
 
-    void Awake()
+    private void Awake()
     {
         characterInventory = GetComponent<Inventory>();
-        // Инициализируем словарь пустыми значениями
-        foreach (EquipmentSlotType slot in Enum.GetValues(typeof(EquipmentSlotType)))
-        {
-            if (slot != EquipmentSlotType.None)
-            {
-                equippedItems.Add(slot, null);
-            }
-        }
+        InitializeSlots();
     }
-/// <summary>
-    /// Определяет слот по умолчанию для предмета на основе его валидных слотов.
-    /// </summary>
-    private EquipmentSlotType GetDefaultSlot(EquipmentSlotType validSlots)
-    {
-        // Приоритеты для автоматической экипировки
-        if (validSlots.HasFlag(EquipmentSlotType.RightHand)) return EquipmentSlotType.RightHand;
-        if (validSlots.HasFlag(EquipmentSlotType.LeftHand)) return EquipmentSlotType.LeftHand;
-        if (validSlots.HasFlag(EquipmentSlotType.Armor)) return EquipmentSlotType.Armor;
-        if (validSlots.HasFlag(EquipmentSlotType.Head)) return EquipmentSlotType.Head;
-        if (validSlots.HasFlag(EquipmentSlotType.Chest)) return EquipmentSlotType.Chest;
-        if (validSlots.HasFlag(EquipmentSlotType.Legs)) return EquipmentSlotType.Legs;
-        if (validSlots.HasFlag(EquipmentSlotType.Feet)) return EquipmentSlotType.Feet;
 
-        return EquipmentSlotType.None;
-    }
-    // --- КОНЕЦ ИЗМЕНЕНИЯ ---
     /// <summary>
-    /// Автоматически экипирует предмет, выбирая слот по умолчанию.
+    /// Автоматически экипирует предмет, выбирая слот по умолчанию (например, правую руку для оружия).
     /// </summary>
     public void AutoEquip(InventoryItem itemToEquip, Inventory sourceInventory)
     {
-        if (itemToEquip == null || itemToEquip.itemData.validSlots == EquipmentSlotType.None) return;
-        EquipmentSlotType targetSlot = GetDefaultSlot(itemToEquip.itemData.validSlots);
+        if (itemToEquip == null || itemToEquip.ItemData.ValidSlots == EquipmentSlotType.None) return;
+        
+        EquipmentSlotType targetSlot = GetDefaultSlotFor(itemToEquip.ItemData.ValidSlots);
         if (targetSlot == EquipmentSlotType.None) return;
+
         Equip(itemToEquip, targetSlot, sourceInventory);
     }
 
+    /// <summary>
+    /// Пытается экипировать предмет из указанного инвентаря в конкретный слот.
+    /// </summary>
     public void Equip(InventoryItem itemToEquip, EquipmentSlotType targetSlot, Inventory sourceInventory)
     {
-        if (itemToEquip == null || itemToEquip.itemData.validSlots == EquipmentSlotType.None || sourceInventory == null) return;
+        if (!CanEquip(itemToEquip, targetSlot, sourceInventory)) return;
+        
+        // Сначала удаляем исходный предмет, чтобы освободить место для возвращаемых предметов
+        sourceInventory.RemoveItem(itemToEquip);
+        
+        // Снимаем предметы, которые мешают, и возвращаем их в инвентарь персонажа
+        UnequipBlockingItems(targetSlot, itemToEquip.ItemData);
 
-        // 1. Проверяем, валиден ли слот для этого предмета
-        if ((itemToEquip.itemData.validSlots & targetSlot) == 0)
+        // Помещаем новый предмет в слот(ы)
+        PlaceItemInSlot(itemToEquip, targetSlot);
+    }
+
+    /// <summary>
+    /// Снимает предмет из указанного слота и пытается поместить его в инвентарь по указанным координатам.
+    /// Если координаты невалидны, ищет первое свободное место.
+    /// </summary>
+    public void Unequip(EquipmentSlotType slotToUnequip, int targetX = -1, int targetY = -1)
+    {
+        if (equippedItems.TryGetValue(slotToUnequip, out InventoryItem itemToUnequip) && itemToUnequip != null)
+        {
+            // Сначала удаляет предмет из слотов экипировки
+            RemoveItemFromSlot(itemToUnequip);
+
+            // Пытается поместить его в указанную ячейку
+            bool placedSuccessfully = false;
+            if (targetX != -1 && targetY != -1)
+            {
+                placedSuccessfully = characterInventory.AddItemAt(itemToUnequip, targetX, targetY);
+            }
+            
+            // Если не удалось (координаты не заданы или заняты), ищет первое свободное место
+            if (!placedSuccessfully)
+            {
+                if (!characterInventory.AddItem(itemToUnequip.ItemData, itemToUnequip.Quantity))
+                {
+                    // Если места нет нигде, возвращает предмет в слот экипировки.
+                    PlaceItemInSlot(itemToUnequip, slotToUnequip);
+                    FindObjectOfType<FeedbackManager>()?.ShowFeedbackMessage("Not enough space in inventory to unequip.");
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Возвращает предмет, экипированный в указанном слоте.
+    /// </summary>
+    public InventoryItem GetItemInSlot(EquipmentSlotType slot)
+    {
+        equippedItems.TryGetValue(slot, out InventoryItem item);
+        return item;
+    }
+    
+    #region Private Logic
+    private void InitializeSlots()
+    {
+        foreach (EquipmentSlotType slotType in Enum.GetValues(typeof(EquipmentSlotType)))
+        {
+            if (slotType != EquipmentSlotType.None)
+            {
+                equippedItems[slotType] = null;
+            }
+        }
+    }
+
+    private bool CanEquip(InventoryItem item, EquipmentSlotType targetSlot, Inventory sourceInventory)
+    {
+        if (item == null || item.ItemData.ValidSlots == EquipmentSlotType.None || sourceInventory == null) return false;
+
+        if (!item.ItemData.ValidSlots.HasFlag(targetSlot))
         {
             FindObjectOfType<FeedbackManager>()?.ShowFeedbackMessage("Cannot equip this item in that slot.");
-            return;
+            return false;
+        }
+        List<InventoryItem> itemsToUnequip = GetBlockingItems(targetSlot, item.ItemData);
+        Inventory targetInventory = (sourceInventory == characterInventory) ? characterInventory : sourceInventory;
+        
+        if (!CanInventoryAcceptSwap(targetInventory, itemsToUnequip, item))
+        {
+             FindObjectOfType<FeedbackManager>()?.ShowFeedbackMessage("Not enough space to swap items.");
+             return false;
         }
 
-        // 2. Проверяем, является ли предмет двуручным
-        bool isTwoHanded = itemToEquip.itemData.validSlots.HasFlag(EquipmentSlotType.Hands);
+        return true;
+    }
 
-        // ВРЕМЕННО сохраняем предметы, которые будут сняты
-        InventoryItem itemInTargetSlot = GetItemInSlot(targetSlot);
-        InventoryItem itemInOtherHand = null;
+    private void UnequipBlockingItems(EquipmentSlotType targetSlot, ItemData newItemData)
+    {
+        var itemsToReturn = GetBlockingItems(targetSlot, newItemData);
+        foreach (var item in itemsToReturn)
+        {
+            // TODO: Убрать модификаторы статов от снимаемого предмета
+            characterInventory.AddItem(item.ItemData, item.Quantity);
+        }
+    }
 
+    private void PlaceItemInSlot(InventoryItem item, EquipmentSlotType slot)
+    {
+        bool isTwoHanded = item.ItemData.ValidSlots.HasFlag(EquipmentSlotType.Hands);
         if (isTwoHanded)
         {
-             var otherHand = targetSlot == EquipmentSlotType.LeftHand ? EquipmentSlotType.RightHand : EquipmentSlotType.LeftHand;
-             itemInOtherHand = GetItemInSlot(otherHand);
-        } else if (itemInTargetSlot != null && itemInTargetSlot.itemData.validSlots.HasFlag(EquipmentSlotType.Hands)) {
-            // Если мы пытаемся надеть одноручное в слот, где уже есть двуручное
-            var otherHand = targetSlot == EquipmentSlotType.LeftHand ? EquipmentSlotType.RightHand : EquipmentSlotType.LeftHand;
-            itemInOtherHand = GetItemInSlot(otherHand);
+            equippedItems[EquipmentSlotType.LeftHand] = item;
+            equippedItems[EquipmentSlotType.RightHand] = item;
+            OnEquipmentChanged?.Invoke(EquipmentSlotType.LeftHand, item);
+            OnEquipmentChanged?.Invoke(EquipmentSlotType.RightHand, item);
         }
-
-        // 3. ПРЕДВАРИТЕЛЬНАЯ ПРОВЕРКА МЕСТА В ИНВЕНТАРЕ
-        // Прежде чем что-либо делать, симулируем обмен и проверяем, хватит ли места в инвентаре источника.
-        if (sourceInventory != this.characterInventory)
+        else
         {
-            // Если мы тащим из сундука в экипировку, то снятые вещи пойдут в инвентарь персонажа.
-            if (!CanInventoryAcceptItems(this.characterInventory, itemInTargetSlot, itemInOtherHand))
-            {
-                FindObjectOfType<FeedbackManager>()?.ShowFeedbackMessage("Not enough space to swap items.");
-                return;
-            }
+            equippedItems[slot] = item;
+            OnEquipmentChanged?.Invoke(slot, item);
         }
-        else // Если мы тащим из своего инвентаря в свою экипировку
-        {
-            // То снятые вещи вернутся в тот же инвентарь.
-            if (!CanInventoryAcceptItems(this.characterInventory, itemInTargetSlot, itemInOtherHand, itemToEquip))
-            {
-                FindObjectOfType<FeedbackManager>()?.ShowFeedbackMessage("Not enough space to swap items.");
-                return;
-            }
-        }
-        
-        // 4. ПРОВОДИМ ОПЕРАЦИЮ (теперь она безопасна)
-        // Сначала удаляем предмет из источника
-        sourceInventory.RemoveItem(itemToEquip);
-
-        // Снимаем старые предметы и возвращаем их в инвентарь персонажа
-        if(itemInTargetSlot != null) UnequipAndReturnToInventory(itemInTargetSlot);
-        if(itemInOtherHand != null && itemInOtherHand != itemInTargetSlot) UnequipAndReturnToInventory(itemInOtherHand);
-        
-        // Экипируем новый предмет
-        PlaceItemInSlot(itemToEquip, targetSlot, true);
+        // TODO: Применить модификаторы статов от нового предмета
     }
-    
-    /// <summary>
-    /// Проверяет, может ли инвентарь принять указанные предметы. Игнорирует предмет, который будет удален.
-    /// </summary>
-    private bool CanInventoryAcceptItems(Inventory inventory, InventoryItem item1, InventoryItem item2, InventoryItem itemToIgnore = null)
+
+    private void RemoveItemFromSlot(InventoryItem item)
     {
-        // Это упрощенная симуляция. Для 100% точности нужен более сложный алгоритм,
-        // но для большинства случаев этого хватит.
-        // Мы просто проверяем, что в инвентаре достаточно свободных ячеек.
-        int requiredSlots = 0;
-        if (item1 != null) requiredSlots++;
-        if (item2 != null && item2 != item1) requiredSlots++;
-
-        int currentItemCount = inventory.items.Count;
-        if (itemToIgnore != null) currentItemCount--;
-
-        int freeSlots = (inventory.gridWidth * inventory.gridHeight) - currentItemCount;
-        
-        return freeSlots >= requiredSlots;
-    }
-    
-    /// <summary>
-    /// Снимает предмет со слота и помещает его в инвентарь персонажа.
-    /// Это "внутренний" метод, который не делает проверок.
-    /// </summary>
-    private void UnequipAndReturnToInventory(InventoryItem item)
-    {
-        if (item == null) return;
-        
-        bool isTwoHanded = item.itemData.validSlots.HasFlag(EquipmentSlotType.Hands);
-
+        bool isTwoHanded = item.ItemData.ValidSlots.HasFlag(EquipmentSlotType.Hands);
         if (isTwoHanded)
         {
             equippedItems[EquipmentSlotType.LeftHand] = null;
             equippedItems[EquipmentSlotType.RightHand] = null;
+            OnEquipmentChanged?.Invoke(EquipmentSlotType.LeftHand, null);
+            OnEquipmentChanged?.Invoke(EquipmentSlotType.RightHand, null);
         }
         else
         {
-            // Находим, в каком слоте лежит предмет
-            EquipmentSlotType? slot = GetSlotOfItem(item);
-            if(slot.HasValue) equippedItems[slot.Value] = null;
+            var slot = GetSlotOfItem(item);
+            if(slot.HasValue) 
+            {
+                equippedItems[slot.Value] = null;
+                OnEquipmentChanged?.Invoke(slot.Value, null);
+            }
         }
-
-        this.characterInventory.AddItem(item.itemData, item.quantity);
-        // TODO: Убрать модификаторы статов
+        // TODO: Убрать модификаторы статов от снятого предмета
     }
 
-    /// <summary>
-    /// Вспомогательный метод для поиска слота по предмету
-    /// </summary>
+    private List<InventoryItem> GetBlockingItems(EquipmentSlotType targetSlot, ItemData newItemData)
+    {
+        var blockingItems = new List<InventoryItem>();
+        bool isNewItemTwoHanded = newItemData.ValidSlots.HasFlag(EquipmentSlotType.Hands);
+
+        if (isNewItemTwoHanded)
+        {
+            if (GetItemInSlot(EquipmentSlotType.LeftHand) != null) blockingItems.Add(GetItemInSlot(EquipmentSlotType.LeftHand));
+            if (GetItemInSlot(EquipmentSlotType.RightHand) != null) blockingItems.Add(GetItemInSlot(EquipmentSlotType.RightHand));
+        }
+        else
+        {
+            var currentItem = GetItemInSlot(targetSlot);
+            if (currentItem != null)
+            {
+                blockingItems.Add(currentItem);
+                // Если текущий предмет двуручный, а новый - нет, нужно освободить и вторую руку
+                if(currentItem.ItemData.ValidSlots.HasFlag(EquipmentSlotType.Hands))
+                {
+                    var otherHand = targetSlot == EquipmentSlotType.LeftHand ? EquipmentSlotType.RightHand : EquipmentSlotType.LeftHand;
+                    if(GetItemInSlot(otherHand) != null) blockingItems.Add(GetItemInSlot(otherHand));
+                }
+            }
+        }
+        return blockingItems.Distinct().ToList();
+    }
+    
+    private bool CanInventoryAcceptSwap(Inventory inventory, List<InventoryItem> itemsToAdd, InventoryItem itemToRemove)
+    {
+        int requiredSlots = itemsToAdd.Count;
+        int currentItemCount = inventory.Items.Count;
+        
+        if (inventory.Items.Contains(itemToRemove))
+        {
+            currentItemCount--;
+        }
+
+        int totalGridCells = inventory.GridWidth * inventory.GridHeight;
+        int occupiedCells = inventory.Items.Sum(item => item.ItemData.GridWidth * item.ItemData.GridHeight);
+        if (inventory.Items.Contains(itemToRemove))
+        {
+            occupiedCells -= itemToRemove.ItemData.GridWidth * itemToRemove.ItemData.GridHeight;
+        }
+
+        // TODO: эта проверка не учитывает фрагментацию пространства, а только количество ячеек. Доработать.
+        int requiredCells = itemsToAdd.Sum(item => item.ItemData.GridWidth * item.ItemData.GridHeight);
+        return (totalGridCells - occupiedCells) >= requiredCells;
+    }
+    
+    private EquipmentSlotType GetDefaultSlotFor(EquipmentSlotType ValidSlots)
+    {
+        if (ValidSlots.HasFlag(EquipmentSlotType.RightHand)) return EquipmentSlotType.RightHand;
+        if (ValidSlots.HasFlag(EquipmentSlotType.LeftHand)) return EquipmentSlotType.LeftHand;
+        if (ValidSlots.HasFlag(EquipmentSlotType.Armor)) return EquipmentSlotType.Armor;
+        if (ValidSlots.HasFlag(EquipmentSlotType.Head)) return EquipmentSlotType.Head;
+        if (ValidSlots.HasFlag(EquipmentSlotType.Chest)) return EquipmentSlotType.Chest;
+        if (ValidSlots.HasFlag(EquipmentSlotType.Legs)) return EquipmentSlotType.Legs;
+        if (ValidSlots.HasFlag(EquipmentSlotType.Feet)) return EquipmentSlotType.Feet;
+
+        return EquipmentSlotType.None;
+    }
+
     private EquipmentSlotType? GetSlotOfItem(InventoryItem item)
     {
         foreach(var pair in equippedItems)
@@ -172,76 +251,5 @@ public class CharacterEquipment : MonoBehaviour
         }
         return null;
     }
-
-    /// <summary>
-    /// Вспомогательный метод для фактического размещения предмета в слоте и обновления UI.
-    /// </summary>
-    private void PlaceItemInSlot(InventoryItem item, EquipmentSlotType slot, bool updateUI)
-    {
-        equippedItems[slot] = item;
-        
-        // TODO: Применить модификаторы статов
-        
-        if (updateUI)
-        {
-            OnEquipmentChanged?.Invoke(slot, item);
-            if(item.itemData.validSlots.HasFlag(EquipmentSlotType.Hands))
-            {
-                // Если предмет двуручный, нужно обновить и второй слот в UI
-                var otherHand = slot == EquipmentSlotType.LeftHand ? EquipmentSlotType.RightHand : EquipmentSlotType.LeftHand;
-                OnEquipmentChanged?.Invoke(otherHand, item);
-            }
-        }
-    }
-
-    /// <summary>
-    /// Снимает предмет из указанного слота и возвращает его в инвентарь.
-    /// </summary>
-    public void Unequip(EquipmentSlotType slotToUnequip)
-    {
-        if (equippedItems.TryGetValue(slotToUnequip, out InventoryItem itemToUnequip) && itemToUnequip != null)
-        {
-            // Если предмет двуручный, нужно освободить оба слота
-            bool isTwoHanded = itemToUnequip.itemData.validSlots.HasFlag(EquipmentSlotType.Hands);
-
-            // Пытаемся вернуть предмет в инвентарь (это происходит только один раз)
-            if (characterInventory.AddItem(itemToUnequip.itemData, itemToUnequip.quantity))
-            {
-                if (isTwoHanded)
-                {
-                    equippedItems[EquipmentSlotType.LeftHand] = null;
-                    equippedItems[EquipmentSlotType.RightHand] = null;
-                    
-                    // TODO: Убрать модификаторы статов
-                    
-                    OnEquipmentChanged?.Invoke(EquipmentSlotType.LeftHand, null);
-                    OnEquipmentChanged?.Invoke(EquipmentSlotType.RightHand, null);
-                }
-                else
-                {
-                    equippedItems[slotToUnequip] = null;
-                    
-                    // TODO: Убрать модификаторы статов
-                    
-                    OnEquipmentChanged?.Invoke(slotToUnequip, null);
-                }
-            }
-            else
-            {
-                FindObjectOfType<FeedbackManager>()?.ShowFeedbackMessage("Not enough space in inventory to unequip.");
-            }
-        }
-    }
-    
-    /// <summary>
-    /// Возвращает предмет, экипированный в указанном слоте.
-    /// </summary>
-    public InventoryItem GetItemInSlot(EquipmentSlotType slot)
-    {
-        if (equippedItems.TryGetValue(slot, out InventoryItem item))
-        {
-            return item;
-        }
-        return null;
-    }
+    #endregion
 }

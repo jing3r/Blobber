@@ -1,224 +1,213 @@
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
-using System.Linq; // Добавляем, чтобы использовать LINQ
 
+/// <summary>
+/// Управляет созданием, отображением и жизненным циклом всех окон инвентаря в игре.
+/// </summary>
 public class InventoryUIManager : MonoBehaviour
 {
-    [Header("Настройки")]
+    [Header("Префабы и контейнеры")]
     [SerializeField] private GameObject inventoryWindowPrefab;
+    [SerializeField] private Transform partyInventoriesContainer;
+    [SerializeField] private Transform worldInventoriesContainer;
 
-    [Header("Контейнеры")]
-    [SerializeField] private Transform partyInventoriesContainer; // Для инвентарей партии
+    private PartyManager partyManager;
+    private readonly Dictionary<Inventory, InventoryUI> openWindows = new Dictionary<Inventory, InventoryUI>();
 
-    [SerializeField] private Transform worldInventoriesContainer; // Для трупов, сундуков и т.д.
-
-
-    [Header("Источники данных")]
-    [SerializeField] private PartyManager partyManager;
-
-    // Теперь храним окна по их источнику-инвентарю
-    private Dictionary<Inventory, InventoryUI> openWindows = new Dictionary<Inventory, InventoryUI>();
-    public static InventoryGridUI GridUnderMouse { get; private set; }
-
-    public static void SetGridUnderMouse(InventoryGridUI grid)
+    private void Awake()
     {
-        GridUnderMouse = grid;
+        partyManager = FindObjectOfType<PartyManager>();
     }
 
-    public static void ClearGridUnderMouse()
-    {
-        GridUnderMouse = null;
-    }
-    // Вызывается из InputManager по нажатию 1-6
+    #region Window Management
+    /// <summary>
+    /// Открывает или закрывает окно инвентаря для указанного члена партии.
+    /// </summary>
     public void TogglePartyMemberInventory(int characterIndex)
     {
-        if (characterIndex < 0 || characterIndex >= partyManager.partyMembers.Count) return;
-        var character = partyManager.partyMembers[characterIndex];
-        if (character == null) return;
-
-        var inventory = character.GetComponent<Inventory>();
-        if (inventory != null)
+        if (characterIndex < 0 || characterIndex >= partyManager.PartyMembers.Count) return;
+        
+        var character = partyManager.PartyMembers[characterIndex];
+        if (character != null && character.TryGetComponent<Inventory>(out var inventory))
         {
-            // Используем контейнер партии
             ToggleWindowFor(inventory, partyInventoriesContainer, null);
         }
     }
 
-    // Вызывается из LootableCorpse.Interact()
+    /// <summary>
+    /// Открывает или закрывает окно инвентаря для мирового контейнера (например, трупа).
+    /// </summary>
     public void ToggleCorpseInventoryWindow(Inventory corpseInventory, string windowTitle)
     {
-        // Используем мировой контейнер
         ToggleWindowFor(corpseInventory, worldInventoriesContainer, windowTitle);
     }
-
-    // Универсальный метод для открытия/закрытия окна
-    private void ToggleWindowFor(Inventory inventory, Transform container, string overrideName = null)
+    
+    /// <summary>
+    /// Открывает или закрывает все окна инвентаря для членов партии.
+    /// </summary>
+    public void ToggleAllPartyWindows()
     {
-        if (inventory == null) return;
+        bool anyPartyWindowOpen = openWindows.Keys.Any(inv => inv.GetComponentInParent<PartyManager>() != null);
 
-        if (openWindows.TryGetValue(inventory, out InventoryUI existingWindow))
+        if (anyPartyWindowOpen)
         {
-            Destroy(existingWindow.gameObject);
-            openWindows.Remove(inventory);
+            CloseAllWindows();
         }
         else
         {
-            // Создаем окно в указанном контейнере
-            var windowGO = Instantiate(inventoryWindowPrefab, container);
-            var inventoryUI = windowGO.GetComponent<InventoryUI>();
-
-            inventoryUI.Initialize(inventory, overrideName);
-            openWindows.Add(inventory, inventoryUI);
-        }
-    }
-    public void ToggleAllPartyWindows()
-    {
-        // Проверяем, открыто ли хотя бы одно окно инвентаря партии
-        bool anyPartyInventoryOpen = false;
-        foreach (var member in partyManager.partyMembers)
-        {
-            var inventory = member.GetComponent<Inventory>();
-            if (inventory != null && openWindows.ContainsKey(inventory))
-            {
-                anyPartyInventoryOpen = true;
-                break;
-            }
-        }
-
-        // Если хотя бы одно открыто -> закрываем ВСЕ окна (и партийные, и мировые)
-        if (anyPartyInventoryOpen)
-        {
-            // Создаем копию ключей, так как мы будем изменять словарь в цикле
-            List<Inventory> keys = new List<Inventory>(openWindows.Keys);
-            foreach (var inventoryKey in keys)
-            {
-                if (openWindows.TryGetValue(inventoryKey, out InventoryUI window))
-                {
-                    Destroy(window.gameObject);
-                    openWindows.Remove(inventoryKey);
-                }
-            }
-        }
-        else // Если все закрыты -> открываем инвентари для КАЖДОГО члена партии
-        {
-            for (int i = 0; i < partyManager.partyMembers.Count; i++)
+            for (int i = 0; i < partyManager.PartyMembers.Count; i++)
             {
                 TogglePartyMemberInventory(i);
             }
         }
     }
+    
+    /// <summary>
+    /// Закрывает все открытые окна инвентаря.
+    /// </summary>
+    public void CloseAllWindows()
+    {
+        // Создаем копию ключей, так как словарь будет изменяться во время итерации
+        foreach (var window in openWindows.Values.ToList())
+        {
+            Destroy(window.gameObject);
+        }
+        openWindows.Clear();
+    }
+    
+    public bool AreAnyWindowsOpen() => openWindows.Count > 0;
+
+    /// <summary>
+    /// Закрывает конкретное окно инвентаря.
+    /// </summary>
+    public void CloseWindowFor(Inventory inventory)
+    {
+        if (openWindows.TryGetValue(inventory, out var windowToClose))
+        {
+            Destroy(windowToClose.gameObject);
+            openWindows.Remove(inventory);
+        }
+    }
+    private void ToggleWindowFor(Inventory inventory, Transform container, string overrideName)
+    {
+        if (inventory == null) return;
+
+        if (openWindows.ContainsKey(inventory))
+        {
+            CloseWindowFor(inventory);
+        }
+        else
+        {
+            var windowGO = Instantiate(inventoryWindowPrefab, container);
+            var inventoryUI = windowGO.GetComponent<InventoryUI>();
+            inventoryUI.Initialize(inventory, overrideName);
+            openWindows.Add(inventory, inventoryUI);
+        }
+    }
+    #endregion
+    
+    #region Item Transfer Logic
+    /// <summary>
+    /// Собирает все предметы из всех открытых мировых контейнеров.
+    /// </summary>
     public void TakeAllFromOpenContainer()
     {
-        // 1. Собираем список всех открытых "мировых" инвентарей
-        List<Inventory> openWorldInventories = new List<Inventory>();
-        foreach (var windowPair in openWindows)
-        {
-            // Владелец инвентаря - это GameObject, на котором висит компонент Inventory
-            var inventoryOwner = windowPair.Key.gameObject;
+        var openWorldInventories = openWindows.Keys
+            .Where(inv => inv.GetComponentInParent<PartyManager>() == null)
+            .ToList();
 
-            // Проверяем, что это не инвентарь члена партии
-            if (inventoryOwner.GetComponentInParent<PartyManager>() == null)
-            {
-                openWorldInventories.Add(windowPair.Key);
-            }
-        }
-
-        // 2. Если нашли хотя бы один, передаем весь список в PartyManager
         if (openWorldInventories.Count > 0)
         {
-            partyManager.LootAllFromSources(openWorldInventories); // Обрати внимание на 's' в конце
+            partyManager.LootAllFromSources(openWorldInventories);
         }
         else
         {
             FindObjectOfType<FeedbackManager>()?.ShowFeedbackMessage("No containers are open.");
         }
     }
-
-    public bool AreAnyWindowsOpen()
-    {
-        return openWindows.Count > 0;
-    }
-
-    public void CloseAllWindows()
-    {
-        if (openWindows.Count == 0) return;
-
-        List<Inventory> keys = new List<Inventory>(openWindows.Keys);
-        foreach (var inventoryKey in keys)
-        {
-            if (openWindows.TryGetValue(inventoryKey, out InventoryUI window))
-            {
-                Destroy(window.gameObject);
-            }
-        }
-        openWindows.Clear();
-    }
-    // --- НАЧАЛО ИЗМЕНЕНИЯ ---
+    
+    /// <summary>
+    /// Обрабатывает быстрое перемещение предмета (Shift+Click).
+    /// </summary>
     public void HandleFastItemTransfer(InventoryItem itemToTransfer)
     {
-        Inventory sourceInventory = itemToTransfer.GetOwnerInventory();
+        var sourceInventory = itemToTransfer.GetOwnerInventory();
         if (sourceInventory == null) return;
 
         bool isSourceInParty = sourceInventory.GetComponentInParent<PartyManager>() != null;
-
         if (isSourceInParty)
         {
-            // Случай: Из инвентаря партии -> в мир или другому члену партии
             TransferFromParty(itemToTransfer, sourceInventory);
         }
         else
         {
-            // Случай: Из мирового контейнера -> в инвентарь партии
             TransferToParty(itemToTransfer, sourceInventory);
+        }
+    }
+    
+    /// <summary>
+    /// Обрабатывает прямую передачу предмета конкретному персонажу (NumPad-клик).
+    /// </summary>
+    public void HandleDirectItemTransfer(InventoryItem item, int targetCharacterIndex)
+    {
+        var sourceInventory = item.GetOwnerInventory();
+        if (sourceInventory == null) return;
+        if (targetCharacterIndex < 0 || targetCharacterIndex >= partyManager.PartyMembers.Count) return;
+
+        var targetCharacter = partyManager.PartyMembers[targetCharacterIndex];
+        if (targetCharacter == null || targetCharacter.IsDead)
+        {
+            FindObjectOfType<FeedbackManager>()?.ShowFeedbackMessage("Target character is unavailable.");
+            return;
+        }
+
+        var targetInventory = targetCharacter.GetComponent<Inventory>();
+        if (targetInventory == null) return;
+        
+        // Используем перегрузку AddItem для корректной обработки перемещения внутри одного инвентаря
+        var itemToIgnore = (sourceInventory == targetInventory) ? item : null;
+        
+        if (targetInventory.AddItem(item.ItemData, item.Quantity, itemToIgnore))
+        {
+            sourceInventory.RemoveItem(item);
+        }
+        else
+        {
+            FindObjectOfType<FeedbackManager>()?.ShowFeedbackMessage($"{targetCharacter.name} has no space.");
         }
     }
 
     private void TransferToParty(InventoryItem item, Inventory sourceInventory)
     {
-        // Собираем список всех членов партии в правильном порядке для получения лута
-        List<CharacterStats> receivers = new List<CharacterStats>();
-        // Сначала активный член, если он есть
-        if (partyManager.ActiveMember != null && !partyManager.ActiveMember.IsDead)
+        var receivers = new List<CharacterStats>();
+        if (partyManager.ActiveMember != null && !partyManager.ActiveMember.IsDead) receivers.Add(partyManager.ActiveMember);
+        foreach (var member in partyManager.PartyMembers)
         {
-            receivers.Add(partyManager.ActiveMember);
-        }
-        // Затем все остальные по порядку
-        foreach (var member in partyManager.partyMembers)
-        {
-            if (member != null && !member.IsDead && !receivers.Contains(member))
-            {
-                receivers.Add(member);
-            }
+            if (member != null && !member.IsDead && !receivers.Contains(member)) receivers.Add(member);
         }
 
-        // Пытаемся передать предмет
         foreach (var member in receivers)
         {
-            var targetInventory = member.GetComponent<Inventory>();
-            if (targetInventory != null && targetInventory.AddItem(item.itemData, item.quantity))
+            if (member.TryGetComponent<Inventory>(out var targetInv) && targetInv.AddItem(item.ItemData, item.Quantity))
             {
-                // Успех, удаляем предмет из источника
                 sourceInventory.RemoveItem(item);
-                return; // Выходим
+                return;
             }
         }
-
-        // Если дошли сюда, значит, никому не удалось передать предмет
+        
         FindObjectOfType<FeedbackManager>()?.ShowFeedbackMessage("No space in party inventories.");
     }
 
-    private void TransferFromParty(InventoryItem item, Inventory sourceInventory)
+private void TransferFromParty(InventoryItem item, Inventory sourceInventory)
     {
-        // Ищем открытые мировые контейнеры
-        var openWorldInventories = openWindows.Keys
-            .Where(inv => inv.GetComponentInParent<PartyManager>() == null)
-            .ToList();
+        var openWorldInventories = openWindows.Keys.Where(inv => inv.GetComponentInParent<PartyManager>() == null).ToList();
 
-        // Правило 2.2: Если открыт ровно один мировой контейнер, переносим в него
+        // Приоритет 1: Переместить в единственный открытый мировой контейнер.
         if (openWorldInventories.Count == 1)
         {
-            var targetInventory = openWorldInventories[0];
-            if (targetInventory.AddItem(item.itemData, item.quantity))
+            var targetInv = openWorldInventories[0];
+            if (targetInv.AddItem(item.ItemData, item.Quantity))
             {
                 sourceInventory.RemoveItem(item);
             }
@@ -229,72 +218,38 @@ public class InventoryUIManager : MonoBehaviour
             return;
         }
 
-        // Правило 2.3: Если мировых контейнеров нет, переносим активному персонажу
-        if (openWorldInventories.Count == 0 && partyManager.ActiveMember != null)
+        // Если мировых контейнеров 0 или >1, пытаемся передать предмет другому члену партии.
+        if (openWorldInventories.Count != 1)
         {
-            var activeMemberInventory = partyManager.ActiveMember.GetComponent<Inventory>();
-            // Передаем только если это не мы сами
-            if (activeMemberInventory != sourceInventory)
+            CharacterStats targetCharacter = null;
+            var sourceCharacter = sourceInventory.GetComponent<CharacterStats>();
+
+            // Цель по умолчанию - активный персонаж, если это не сам источник.
+            if (partyManager.ActiveMember != null && partyManager.ActiveMember != sourceCharacter)
             {
-                if (activeMemberInventory.AddItem(item.itemData, item.quantity))
+                targetCharacter = partyManager.ActiveMember;
+            }
+            else
+            {
+                // В противном случае, ищем первого доступного персонажа в партии, который не является источником.
+                // Это создает предсказуемое "резервное" поведение.
+                targetCharacter = partyManager.PartyMembers.FirstOrDefault(m => m != null && !m.IsDead && m != sourceCharacter);
+            }
+            
+            if (targetCharacter != null)
+            {
+                var targetInventory = targetCharacter.GetComponent<Inventory>();
+                if (targetInventory.AddItem(item.ItemData, item.Quantity))
                 {
                     sourceInventory.RemoveItem(item);
                 }
                 else
                 {
-                    FindObjectOfType<FeedbackManager>()?.ShowFeedbackMessage("Active member has no space.");
+                    FindObjectOfType<FeedbackManager>()?.ShowFeedbackMessage($"{targetCharacter.name} has no space.");
                 }
             }
+            // Если подходящий персонаж не найден (например, в партии всего один), действие не выполняется.
         }
     }
-    // --- КОНЕЦ ИЗМЕНЕНИЯ ---
-        // --- НАЧАЛО ИЗМЕНЕНИЯ ---
-public void HandleDirectItemTransfer(InventoryItem item, int targetCharacterIndex)
-    {
-        Inventory sourceInventory = item.GetOwnerInventory();
-        if (sourceInventory == null) return;
-
-        if (targetCharacterIndex < 0 || targetCharacterIndex >= partyManager.partyMembers.Count) return;
-
-        var targetCharacter = partyManager.partyMembers[targetCharacterIndex];
-        if (targetCharacter == null || targetCharacter.IsDead)
-        {
-            FindObjectOfType<FeedbackManager>()?.ShowFeedbackMessage("Target character is unavailable.");
-            return;
-        }
-
-        var targetInventory = targetCharacter.GetComponent<Inventory>();
-        if (targetInventory == null) return;
-
-        // --- НАЧАЛО ИЗМЕНЕНИЯ ---
-
-        // Если это один и тот же инвентарь, используем новую логику
-        if (sourceInventory == targetInventory)
-        {
-            // Мы не удаляем предмет. Мы пытаемся "добавить" его, игнорируя его же при поиске стаков.
-            // Если он найдет другой стак, он объединится. Если нет, он найдет первую свободную ячейку и переместится туда.
-            if (targetInventory.AddItem(item.itemData, item.quantity, item))
-            {
-                // Успех. AddItem сам вызовет OnInventoryChanged.
-            }
-            else
-            {
-                // Этого не должно происходить, так как предмет уже в инвентаре,
-                // но на всякий случай оставим фидбек.
-                FindObjectOfType<FeedbackManager>()?.ShowFeedbackMessage("Could not rearrange item.");
-            }
-        }
-        else // Если инвентари разные, используем старую, работающую логику
-        {
-            if (targetInventory.AddItem(item.itemData, item.quantity))
-            {
-                sourceInventory.RemoveItem(item);
-            }
-            else
-            {
-                FindObjectOfType<FeedbackManager>()?.ShowFeedbackMessage($"{targetCharacter.name} has no space.");
-            }
-        }
-        // --- КОНЕЦ ИЗМЕНЕНИЯ ---
-    }
+    #endregion
 }

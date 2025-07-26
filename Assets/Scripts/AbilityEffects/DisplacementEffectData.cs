@@ -6,12 +6,12 @@ using System.Collections.Generic;
 [Serializable]
 public class DisplacementEffectData : AbilityEffectData
 {
-    public float baseDisplacementDistance = 3.0f;
-    public AssociatedAttribute distanceScalingAttribute = AssociatedAttribute.Body;
-    public float distancePerAttributePoint = 0.5f;
-    public DisplacementDirectionType directionType = DisplacementDirectionType.AwayFromCaster;
-    public bool targetIsCaster = false;
-    public float displacementDuration = 0.3f;
+    [SerializeField] private float baseDisplacementDistance = 3.0f;
+    [SerializeField] private AssociatedAttribute distanceScalingAttribute = AssociatedAttribute.Body;
+    [SerializeField] private float distancePerAttributePoint = 0.5f;
+    [SerializeField] private DisplacementDirectionType directionType = DisplacementDirectionType.AwayFromCaster;
+    [SerializeField] private bool targetIsCaster = false;
+    [SerializeField] [Min(0.1f)] private float displacementDuration = 0.3f;
     
 public override string ApplyEffect(CharacterStats casterStats, AbilityData sourceAbility, CharacterStats primaryTargetStats, Transform primaryTargetTransform, Vector3 castPoint, ref List<CharacterStats> allTargetsInArea)
 {
@@ -22,13 +22,13 @@ public override string ApplyEffect(CharacterStats casterStats, AbilityData sourc
         if (casterStats != null)
         {
             casterStats.StartCoroutine(DisplaceTargetCoroutine(casterStats, casterStats));
-            return $"{casterStats.name} uses {sourceAbility.abilityName}.";
+            return $"{casterStats.name} uses {sourceAbility.AbilityName}.";
         }
     }
     // --- Логика для эффекта на другую цель (Толчок) ---
     else if (primaryTargetStats != null)
     {
-        if (!sourceAbility.usesContest || CombatHelper.ResolveAttributeContest(casterStats, primaryTargetStats, sourceAbility))
+        if (!sourceAbility.UsesContest || CombatHelper.ResolveAttributeContest(casterStats, primaryTargetStats, sourceAbility))
         {
             primaryTargetStats.StartCoroutine(DisplaceTargetCoroutine(casterStats, primaryTargetStats));
             return $"{primaryTargetStats.name} is displaced.";

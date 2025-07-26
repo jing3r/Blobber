@@ -1,6 +1,9 @@
 using UnityEngine;
 using TMPro;
 
+/// <summary>
+/// Управляет окном инвентаря, объединяя сетку предметов, панель экипировки и информацию о персонаже.
+/// </summary>
 public class InventoryUI : MonoBehaviour
 {
     [Header("Ссылки на UI")]
@@ -9,58 +12,64 @@ public class InventoryUI : MonoBehaviour
     [SerializeField] private InventoryGridUI inventoryGridUI;
     [SerializeField] private EquipmentPanelUI equipmentPanelUI;
 
-    [Header("Настройки инвентаря")]
-    public int gridWidth = 6;
-
-    public int gridHeight = 12;
-
     private Inventory linkedInventory;
-    private CharacterEquipment linkedEquipment;
+    private CharacterStats linkedStats;
 
-public void Initialize(Inventory inventoryToLink, string overrideName = null)
+    /// <summary>
+    /// Инициализирует окно инвентаря, связывая его с логикой инвентаря и экипировки сущности.
+    /// </summary>
+    public void Initialize(Inventory inventoryToLink, string overrideName = null)
     {
         linkedInventory = inventoryToLink;
-        linkedEquipment = inventoryToLink.GetComponent<CharacterEquipment>();
-        linkedInventory.OnInventoryChanged += UpdateUI;
-        inventoryGridUI.Initialize(inventoryToLink);
-        if (equipmentPanelUI != null)
+        linkedStats = inventoryToLink.GetComponent<CharacterStats>();
+        var linkedEquipment = inventoryToLink.GetComponent<CharacterEquipment>();
+
+        linkedInventory.OnInventoryChanged += UpdateWeightText;
+        if (linkedEquipment != null)
         {
-            // Если у сущности есть экипировка - инициализируем.
-            if (linkedEquipment != null) 
-            {
-                equipmentPanelUI.Initialize(linkedEquipment);
-            }
-            // Если нет - панель просто останется пустой/неинтерактивной
-            // (в зависимости от того, как мы решим ее отображать для сундуков).
-            // Пока что можно ничего не делать.
+            linkedEquipment.OnEquipmentChanged += (slot, item) => UpdateWeightText();
         }
-        // Используем переданное имя или имя объекта по умолчанию
+        inventoryGridUI.Initialize(inventoryToLink);
+
+        bool hasEquipment = linkedEquipment != null;
+        equipmentPanelUI.gameObject.SetActive(hasEquipment);
+        if (hasEquipment)
+        {
+            equipmentPanelUI.Initialize(linkedEquipment);
+        }
+
         characterNameText.text = overrideName ?? linkedInventory.gameObject.name;
 
-        UpdateUI();
+        UpdateWeightText();
         gameObject.SetActive(true);
     }
-
-private void UpdateUI()
-{
-    if (linkedInventory == null) return;
-    // Имя обновлять не нужно, оно задается при инициализации. Обновляем только вес.
-    weightInfoText.text = $"{linkedInventory.CurrentWeight:F1} / {linkedInventory.MaxWeightCapacity:F1} kg";
-}
-
+    /// <summary>
+    /// Закрывает это окно инвентаря. Вызывается по нажатию на UI кнопку.
+    /// </summary>
+        public void CloseWindow()
+    {
+        // Вместо уничтожения, мы просим менеджера закрыть окно, связанное с нашим инвентарем
+        FindObjectOfType<InventoryUIManager>()?.CloseWindowFor(linkedInventory);
+    }
     private void OnDestroy()
     {
-        // Важно отписаться, чтобы избежать утечек памяти
         if (linkedInventory != null)
         {
-            linkedInventory.OnInventoryChanged -= UpdateUI;
+            linkedInventory.OnInventoryChanged -= UpdateWeightText;
         }
     }
 
-    public void CloseWindow()
+    private void UpdateWeightText()
     {
-        // Вместо уничтожения, мы просто выключаем окно.
-        // Менеджер окон будет решать, когда его нужно уничтожить.
-        gameObject.SetActive(false);
+        if (linkedInventory == null) return;
+
+        if (linkedStats != null)
+        {
+            weightInfoText.text = $"{linkedStats.TotalCarriedWeight:F1} / {linkedStats.CalculatedMaxCarryWeight:F1} kg";
+        }
+        else
+        {
+            weightInfoText.text = $"{linkedInventory.CurrentWeight:F1} / {linkedInventory.MaxWeightCapacity:F1} kg";
+        }
     }
 }

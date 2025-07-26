@@ -4,7 +4,7 @@ public static class CombatHelper
 {
     public static bool ResolveAttributeContest(CharacterStats attacker, CharacterStats defender, AbilityData ability)
     {
-        if (attacker == null || defender == null || ability == null || !ability.usesContest)
+        if (attacker == null || defender == null || ability == null || !ability.UsesContest)
         {
             return true; // Если нет данных для состязания, считаем его успешным (или не нужным)
         }
@@ -13,14 +13,14 @@ public static class CombatHelper
         int defenderScore = 0;
 
         // Атрибуты атакующего
-        if(ability.attackerAttribute1 != AssociatedAttribute.None) attackerScore += attacker.GetAttributeValue(ability.attackerAttribute1) * 3; // 15% -> вес 3
-        if(ability.attackerAttribute2 != AssociatedAttribute.None) attackerScore += attacker.GetAttributeValue(ability.attackerAttribute2) * 2; // 10% -> вес 2
-        if(ability.attackerAttribute3 != AssociatedAttribute.None) attackerScore += attacker.GetAttributeValue(ability.attackerAttribute3) * 1; // 5%  -> вес 1
+        if(ability.AttackerAttribute1 != AssociatedAttribute.None) attackerScore += attacker.GetAttributeValue(ability.AttackerAttribute1) * 3; // 15% -> вес 3
+        if(ability.AttackerAttribute2 != AssociatedAttribute.None) attackerScore += attacker.GetAttributeValue(ability.AttackerAttribute2) * 2; // 10% -> вес 2
+        if(ability.AttackerAttribute3 != AssociatedAttribute.None) attackerScore += attacker.GetAttributeValue(ability.AttackerAttribute3) * 1; // 5%  -> вес 1
 
         // Атрибуты защищающегося
-        if(ability.defenderAttribute1 != AssociatedAttribute.None) defenderScore += defender.GetAttributeValue(ability.defenderAttribute1) * 3;
-        if(ability.defenderAttribute2 != AssociatedAttribute.None) defenderScore += defender.GetAttributeValue(ability.defenderAttribute2) * 2;
-        if(ability.defenderAttribute3 != AssociatedAttribute.None) defenderScore += defender.GetAttributeValue(ability.defenderAttribute3) * 1;
+        if(ability.DefenderAttribute1 != AssociatedAttribute.None) defenderScore += defender.GetAttributeValue(ability.DefenderAttribute1) * 3;
+        if(ability.DefenderAttribute2 != AssociatedAttribute.None) defenderScore += defender.GetAttributeValue(ability.DefenderAttribute2) * 2;
+        if(ability.DefenderAttribute3 != AssociatedAttribute.None) defenderScore += defender.GetAttributeValue(ability.DefenderAttribute3) * 1;
 
         // Базовый шанс 50% + разница в очках (каждое очко разницы дает 5% к шансу)
         // Это упрощенная модель, где каждый "вес" атрибута примерно соответствует 5%

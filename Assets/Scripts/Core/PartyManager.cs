@@ -1,33 +1,109 @@
 using System.Collections.Generic;
-using UnityEngine;
 using System.Linq;
+using UnityEngine;
 
+/// <summary>
+/// Управляет составом и состоянием партии игрока.
+/// Отвечает за смену активного персонажа, обработку событий партии и взаимодействие с миром от лица всей группы.
+/// </summary>
 public class PartyManager : MonoBehaviour, ISaveable
 {
-    [Header("Interaction Settings")]
+    [Header("Настройки взаимодействия")]
+    [SerializeField]
     [Tooltip("Максимальная дистанция для взаимодействия с контейнерами (Loot All, Drag&Drop).")]
-    public float maxLootDistance = 5f;
-    public List<CharacterStats> partyMembers = new List<CharacterStats>();
-    
-    private int activeMemberIndex = -1; 
-    public CharacterStats ActiveMember => (activeMemberIndex >= 0 && activeMemberIndex < partyMembers.Count) ? partyMembers[activeMemberIndex] : null;
+    private float maxLootDistance = 5f;
+    public float MaxLootDistance => maxLootDistance;
 
+    [Header("Состав партии")]
+    [SerializeField]
+    private List<CharacterStats> partyMembers = new List<CharacterStats>();
+    public IReadOnlyList<CharacterStats> PartyMembers => partyMembers.AsReadOnly();
+
+    private int activeMemberIndex = -1;
+    public CharacterStats ActiveMember => (activeMemberIndex >= 0 && activeMemberIndex < PartyMembers.Count) ? PartyMembers[activeMemberIndex] : null;
+
+    #region Events
     public event System.Action<CharacterStats, CharacterStats> OnActiveMemberChanged;
-
     public static event System.Action OnPartyCompositionChanged;
     public static event System.Action OnPartyWipe;
-    
-    void Awake()
+    #endregion
+
+    #region Unity Lifecycle
+    private void Awake()
     {
-        FindPartyMembersAndSubscribe();
+        FindAndSubscribePartyMembers();
     }
 
-    void Start()
+    private void Start()
     {
-        // Небольшая задержка, чтобы все системы успели инициализироваться
+        // Небольшая задержка, чтобы все другие системы успели инициализироваться перед выбором персонажа
         Invoke(nameof(SelectFirstReadyMember), 0.1f);
     }
+
+    private void OnDestroy()
+    {
+        UnsubscribeFromAllEvents();
+    }
+    #endregion
+
+    #region Party Member Management
+    /// <summary>
+    /// Устанавливает персонажа с указанным индексом как активного.
+    /// </summary>
+    public void SetActiveMember(int index)
+    {
+        if (index == activeMemberIndex) return;
+
+        if (index < 0 || index >= PartyMembers.Count || PartyMembers[index] == null || PartyMembers[index].IsDead)
+        {
+            // Если пытаемся выбрать невалидного или сбросить выбор (-1), снимаем выделение
+            if (activeMemberIndex != -1)
+            {
+                var oldMember = ActiveMember;
+                activeMemberIndex = -1;
+                OnActiveMemberChanged?.Invoke(oldMember, null);
+            }
+            return;
+        }
+
+        var previousMember = ActiveMember;
+        activeMemberIndex = index;
+        OnActiveMemberChanged?.Invoke(previousMember, ActiveMember);
+    }
+
+    /// <summary>
+    /// Переключает активного персонажа на следующего готового к действию.
+    /// </summary>
+    public void CycleToNextReadyMember()
+    {
+        if (PartyMembers.Count == 0) return;
+
+        int startIndex = (activeMemberIndex == -1) ? PartyMembers.Count - 1 : activeMemberIndex;
+        for (int i = 0; i < PartyMembers.Count; i++)
+        {
+            int currentIndex = (startIndex + 1 + i) % PartyMembers.Count;
+            var member = PartyMembers[currentIndex];
+            var actionController = member?.GetComponent<CharacterActionController>();
+
+            if (actionController != null && actionController.CurrentState == CharacterActionController.ActionState.Ready && !member.IsDead)
+            {
+                SetActiveMember(currentIndex);
+                return;
+            }
+        }
+        
+        SetActiveMember(-1);
+    }
     
+    /// <summary>
+    /// Возвращает случайного живого члена партии. Используется AI для выбора цели.
+    /// </summary>
+    public CharacterStats GetRandomLivingMember()
+    {
+        var livingMembers = PartyMembers.Where(member => member != null && !member.IsDead).ToList();
+        return livingMembers.Count > 0 ? livingMembers[Random.Range(0, livingMembers.Count)] : null;
+    }
+
     private void SelectFirstReadyMember()
     {
         int firstReadyIndex = partyMembers.FindIndex(m => m != null && !m.IsDead && m.GetComponent<CharacterActionController>().CurrentState == CharacterActionController.ActionState.Ready);
@@ -36,64 +112,21 @@ public class PartyManager : MonoBehaviour, ISaveable
             SetActiveMember(firstReadyIndex);
         }
     }
+    #endregion
 
-    void OnDestroy()
+    #region Event Handlers
+    private void HandleCharacterActionStarted()
     {
-        UnsubscribeFromEvents();
+        CycleToNextReadyMember();
     }
 
-    private void FindPartyMembersAndSubscribe()
-    {
-        UnsubscribeFromEvents();
-        partyMembers.Clear();
-        foreach (Transform child in transform)
-        {
-            var memberStats = child.GetComponent<CharacterStats>();
-            if (memberStats != null)
-            {
-                partyMembers.Add(memberStats);
-                memberStats.onDied += HandlePartyMemberDeath;
-
-                var actionController = child.GetComponent<CharacterActionController>();
-                if (actionController != null)
-                {
-                    actionController.OnActionStarted += HandleActionStarted;
-                    // --- НОВАЯ ПОДПИСКА ---
-                    actionController.OnStateChanged += HandleCharacterStateChange;
-                }
-            }
-        }
-        OnPartyCompositionChanged?.Invoke();
-    }
-    
-    private void UnsubscribeFromEvents()
-    {
-        foreach (var member in partyMembers)
-        {
-            if (member == null) continue;
-            member.onDied -= HandlePartyMemberDeath;
-            var actionController = member.GetComponent<CharacterActionController>();
-            if (actionController != null)
-            {
-                actionController.OnActionStarted -= HandleActionStarted;
-                actionController.OnStateChanged -= HandleCharacterStateChange;
-            }
-        }
-    }
-
-    // --- НОВЫЙ ОБРАБОТЧИК ---
     private void HandleCharacterStateChange(CharacterActionController.ActionState newState)
     {
-        // Если какой-то персонаж стал готов, А АКТИВНОГО У НАС НЕТ,
-        // то этот персонаж немедленно становится активным.
+        // Если какой-то персонаж стал готов, а активного в данный момент нет,
+        // этот персонаж немедленно становится активным.
         if (newState == CharacterActionController.ActionState.Ready && ActiveMember == null)
         {
-            // Находим индекс персонажа, который отправил событие
-            var readyMember = partyMembers.FirstOrDefault(m => m.GetComponent<CharacterActionController>().CurrentState == CharacterActionController.ActionState.Ready);
-            if(readyMember != null)
-            {
-                SetActiveMember(partyMembers.IndexOf(readyMember));
-            }
+            SelectFirstReadyMember();
         }
     }
 
@@ -105,164 +138,153 @@ public class PartyManager : MonoBehaviour, ISaveable
         }
         CheckForPartyWipe();
     }
-    
+
     private void CheckForPartyWipe()
     {
-        if (partyMembers.Count > 0 && partyMembers.All(m => m == null || m.IsDead))
+        if (PartyMembers.Count > 0 && PartyMembers.All(m => m == null || m.IsDead))
         {
             OnPartyWipe?.Invoke();
         }
     }
+    #endregion
 
-    public void SetActiveMember(int index)
+    #region Party Actions
+    /// <summary>
+    /// Собирает все предметы из списка инвентарей-источников.
+    /// </summary>
+    public void LootAllFromSources(List<Inventory> sourceInventories)
     {
-        if (index < 0 || index >= partyMembers.Count || partyMembers[index] == null || partyMembers[index].IsDead)
+        if (sourceInventories == null || sourceInventories.Count == 0) return;
+
+        var lootReceivers = GetLootReceivers();
+        if (lootReceivers.Count == 0)
         {
-            // Если пытаемся выбрать невалидного, сбрасываем активного
-            if(activeMemberIndex != -1)
-            {
-                CharacterStats oldMember = ActiveMember;
-                activeMemberIndex = -1;
-                OnActiveMemberChanged?.Invoke(oldMember, null);
-            }
+            FindObjectOfType<FeedbackManager>()?.ShowFeedbackMessage("No one in the party can carry items.");
             return;
         }
-        
-        if (index != activeMemberIndex)
-        {
-            CharacterStats oldMember = ActiveMember;
-            activeMemberIndex = index;
-            CharacterStats newMember = ActiveMember;
-            OnActiveMemberChanged?.Invoke(oldMember, newMember);
-        }
-    }
 
-    public void CycleToNextReadyMember()
-    {
-        int count = partyMembers.Count;
-        if (count == 0) return;
-        
-        // Если активного нет, начинаем поиск с самого начала
-        int startIndex = (activeMemberIndex == -1) ? count - 1 : activeMemberIndex;
-        int currentIndex = (startIndex + 1) % count;
+        bool anyItemTaken = false;
+        bool anyContainerTooFar = false;
+        bool anyItemsWereAvailable = false;
 
-        for (int i = 0; i < count; i++)
+        foreach (var sourceInventory in sourceInventories)
         {
-            var controller = partyMembers[currentIndex]?.GetComponent<CharacterActionController>();
-            if (controller != null && controller.CurrentState == CharacterActionController.ActionState.Ready && !partyMembers[currentIndex].IsDead)
+            if (sourceInventory == null || sourceInventory.Items.Count == 0) continue;
+            
+            anyItemsWereAvailable = true;
+            if (Vector3.Distance(transform.position, sourceInventory.transform.position) > maxLootDistance)
             {
-                SetActiveMember(currentIndex);
-                return;
+                anyContainerTooFar = true;
+                continue;
             }
-            currentIndex = (currentIndex + 1) % count;
-        }
-        
-        // Если никого не нашли, сбрасываем активного
-        SetActiveMember(-1);
-    }
 
-    private void HandleActionStarted()
-    {
-        CycleToNextReadyMember();
-    }
-    
-    public CharacterStats GetRandomLivingMember()
-    {
-        var livingMembers = partyMembers.Where(member => member != null && !member.IsDead).ToList();
-        return livingMembers.Count > 0 ? livingMembers[Random.Range(0, livingMembers.Count)] : null;
-    }
-
-public void LootAllFromSources(List<Inventory> sourceInventories)
-{
-    if (sourceInventories == null || sourceInventories.Count == 0) return;
-
-    bool anyItemTakenAtAll = false;
-    bool anyContainerWasTooFar = false;
-    bool wereAnyItemsToLoot = false; // Новый флаг: были ли вообще предметы?
-
-    // 1. Создаем упорядоченный список получателей
-    List<CharacterStats> lootReceivers = new List<CharacterStats>();
-    if (ActiveMember != null && !ActiveMember.IsDead)
-    {
-        lootReceivers.Add(ActiveMember);
-    }
-    foreach (var member in partyMembers)
-    {
-        if (member != null && !member.IsDead && member != ActiveMember)
-        {
-            lootReceivers.Add(member);
-        }
-    }
-    if (lootReceivers.Count == 0)
-    {
-        FindObjectOfType<FeedbackManager>()?.ShowFeedbackMessage("No one in the party can carry items.");
-        return;
-    }
-
-    // 2. Итерируемся по каждому исходному контейнеру
-    foreach (var sourceInventory in sourceInventories)
-    {
-        if (sourceInventory == null) continue;
-        
-        List<InventoryItem> itemsToLoot = new List<InventoryItem>(sourceInventory.items);
-        
-        // Если в этом контейнере нет предметов, просто пропускаем его
-        if (itemsToLoot.Count == 0) continue;
-
-        // Если предметы есть, значит, потенциально было что забрать
-        wereAnyItemsToLoot = true; 
-
-        // --- ПРОВЕРКА ДИСТАНЦИИ ---
-        float distance = Vector3.Distance(this.transform.position, sourceInventory.transform.position);
-        if (distance > maxLootDistance)
-        {
-            anyContainerWasTooFar = true;
-            continue; // Пропускаем этот непустой, но далекий контейнер
-        }
-
-        // 3. Распределяем предметы
-        foreach (var itemToLoot in itemsToLoot)
-        {
-            foreach (var receiver in lootReceivers)
+            // Создаем копию списка, так как будем изменять его в цикле
+            List<InventoryItem> itemsToLoot = new List<InventoryItem>(sourceInventory.Items);
+            foreach (var itemToLoot in itemsToLoot)
             {
-                var receiverInventory = receiver.GetComponent<Inventory>();
-                if (receiverInventory != null && receiverInventory.AddItem(itemToLoot.itemData, itemToLoot.quantity))
+                if (TryDistributeItemToParty(itemToLoot, lootReceivers))
                 {
                     sourceInventory.RemoveItem(itemToLoot);
-                    anyItemTakenAtAll = true;
-                    goto nextItem;
+                    anyItemTaken = true;
                 }
             }
-            nextItem:;
+        }
+        
+        ProvideLootFeedback(anyItemTaken, anyItemsWereAvailable, anyContainerTooFar);
+    }
+
+    private List<CharacterStats> GetLootReceivers()
+    {
+        var receivers = new List<CharacterStats>();
+        if (ActiveMember != null && !ActiveMember.IsDead)
+        {
+            receivers.Add(ActiveMember);
+        }
+        foreach (var member in PartyMembers)
+        {
+            if (member != null && !member.IsDead && !receivers.Contains(member))
+            {
+                receivers.Add(member);
+            }
+        }
+        return receivers;
+    }
+    
+    private bool TryDistributeItemToParty(InventoryItem item, List<CharacterStats> receivers)
+    {
+        foreach (var receiver in receivers)
+        {
+            var receiverInventory = receiver.GetComponent<Inventory>();
+            if (receiverInventory != null && receiverInventory.AddItem(item.ItemData, item.Quantity))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void ProvideLootFeedback(bool anyItemTaken, bool anyItemsAvailable, bool anyContainerTooFar)
+    {
+        var feedbackManager = FindObjectOfType<FeedbackManager>();
+        if(feedbackManager == null) return;
+
+        if (anyItemTaken) return; // Не спамим при успехе
+
+        if (anyItemsAvailable && anyContainerTooFar)
+        {
+            feedbackManager.ShowFeedbackMessage("A container is too far away.");
+        }
+        else if (anyItemsAvailable)
+        {
+            feedbackManager.ShowFeedbackMessage("Could not take any items (no space or capacity).");
         }
     }
+    #endregion
 
-    // 4. Финальный, более точный фидбек
-    var feedbackManager = FindObjectOfType<FeedbackManager>();
-    if (feedbackManager == null) return;
-    
-    if (anyItemTakenAtAll)
+    #region Initialization & Subscriptions
+    private void FindAndSubscribePartyMembers()
     {
-        //feedbackManager.ShowFeedbackMessage("Items have been transferred."); // закомментировано, чтобы не спамить при успехе
-    }
-    else if (wereAnyItemsToLoot && anyContainerWasTooFar)
-    {
-        // Сообщение "слишком далеко" показываем, только если БЫЛИ предметы, но мы до них не дотянулись
-        feedbackManager.ShowFeedbackMessage("The container is too far away.");
-    }
-    else if (wereAnyItemsToLoot)
-    {
-        // Если предметы были, до всех дотянулись, но ничего не взяли -> нет места
-        feedbackManager.ShowFeedbackMessage("Could not take any items (no space or capacity).");
-    }
-    // Если wereAnyItemsToLoot == false, значит, все контейнеры были пусты.
-    // В этом случае мы ничего не выводим, так как никакого действия по сути не произошло.
-}
+        UnsubscribeFromAllEvents(); // Гарантируем, что старых подписок не осталось
+        partyMembers.Clear();
 
-    #region SaveSystem
+        foreach (Transform child in transform)
+        {
+            var memberStats = child.GetComponent<CharacterStats>();
+            if (memberStats != null)
+            {
+                partyMembers.Add(memberStats);
+                memberStats.onDied += HandlePartyMemberDeath;
 
+                var actionController = child.GetComponent<CharacterActionController>();
+                if (actionController != null)
+                {
+                    actionController.OnActionStarted += HandleCharacterActionStarted;
+                    actionController.OnStateChanged += HandleCharacterStateChange;
+                }
+            }
+        }
+        OnPartyCompositionChanged?.Invoke();
+    }
+
+    private void UnsubscribeFromAllEvents()
+    {
+        foreach (var member in PartyMembers)
+        {
+            if (member == null) continue;
+            member.onDied -= HandlePartyMemberDeath;
+            var actionController = member.GetComponent<CharacterActionController>();
+            if (actionController != null)
+            {
+                actionController.OnActionStarted -= HandleCharacterActionStarted;
+                actionController.OnStateChanged -= HandleCharacterStateChange;
+            }
+        }
+    }
+    #endregion
+
+    #region Save System Implementation
     [System.Serializable]
-    private class PartyManagerStateData
+    private class PartyManagerSaveData
     {
         public PlayerSaveData Player;
         public List<PartyMemberSaveData> Party;
@@ -270,158 +292,129 @@ public void LootAllFromSources(List<Inventory> sourceInventories)
 
     public object CaptureState()
     {
-        var playerData = new PlayerSaveData();
-        playerData.position[0] = transform.position.x;
-        playerData.position[1] = transform.position.y;
-        playerData.position[2] = transform.position.z;
-        playerData.rotation[0] = transform.rotation.x;
-        playerData.rotation[1] = transform.rotation.y;
-        playerData.rotation[2] = transform.rotation.z;
-        playerData.rotation[3] = transform.rotation.w;
+        var partyData = PartyMembers
+            .Where(m => m != null)
+            .Select(CapturePartyMemberState)
+            .ToList();
 
-        var partyData = new List<PartyMemberSaveData>();
-        foreach (var member in partyMembers)
+        return new PartyManagerSaveData
         {
-            if (member == null) continue;
-            
-            // --- ИЗМЕНЕНИЕ: Собираем данные напрямую ---
-            
-            // Собираем данные инвентаря
-            var inventory = member.GetComponent<Inventory>();
-            var inventoryState = new List<InventorySlotSaveData>();
-            if (inventory != null)
-            {
-                foreach (var itemSlot in inventory.items)
-                {
-                    if (itemSlot?.itemData == null) continue;
-                    inventoryState.Add(new InventorySlotSaveData
-                    {
-                        itemDataName = itemSlot.itemData.name,
-                        quantity = itemSlot.quantity
-                    });
-                }
-            }
-
-            // Собираем данные способностей
-            var abilities = member.GetComponent<CharacterAbilities>();
-            var abilitiesState = new List<AbilitySaveData>();
-            if (abilities != null)
-            {
-                foreach (var slot in abilities.LearnedAbilities)
-                {
-                    if (slot?.abilityData == null) continue;
-                    abilitiesState.Add(new AbilitySaveData
-                    {
-                        abilityDataName = slot.abilityData.name,
-                        currentCharges = slot.currentCharges
-                    });
-                }
-            }
-
-            var memberData = new PartyMemberSaveData
-            {
-                memberName = member.gameObject.name,
-                currentHealth = member.currentHealth,
-                level = member.level,
-                experience = member.experience,
-                experienceToNextLevel = member.experienceToNextLevel,
-                baseBody = member.baseBody,
-                baseMind = member.baseMind,
-                baseSpirit = member.baseSpirit,
-                baseAgility = member.baseAgility,
-                baseProficiency = member.baseProficiency,
-                // Присваиваем собранные данные
-                inventoryItems = inventoryState,
-                abilitiesData = abilitiesState
-            };
-            partyData.Add(memberData);
-        }
-        
-        var partyManagerState = new PartyManagerStateData
-        {
-            Player = playerData,
+            Player = CapturePlayerState(),
             Party = partyData
         };
-
-        return partyManagerState;
     }
 
-public void RestoreState(object state)
-{
-    if (state is PartyManagerStateData saveData)
+    public void RestoreState(object state)
     {
-        // 1. Восстанавливаем позицию и поворот главного объекта (партии)
-        Vector3 position = new Vector3(saveData.Player.position[0], saveData.Player.position[1], saveData.Player.position[2]);
-        Quaternion rotation = new Quaternion(saveData.Player.rotation[0], saveData.Player.rotation[1], saveData.Player.rotation[2], saveData.Player.rotation[3]);
+        if (state is PartyManagerSaveData saveData)
+        {
+            RestorePlayerState(saveData.Player);
+
+            foreach (var memberSaveData in saveData.Party)
+            {
+                var memberStats = partyMembers.FirstOrDefault(m => m != null && m.gameObject.name == memberSaveData.MemberName);
+                if (memberStats != null)
+                {
+                    RestorePartyMemberState(memberStats, memberSaveData);
+                }
+            }
+
+            FindObjectOfType<PartyUIManager>()?.RefreshAllPartyMemberUIs();
+        }
+    }
+
+    private PlayerSaveData CapturePlayerState()
+    {
+        return new PlayerSaveData
+        {
+            Position = new[] { transform.position.x, transform.position.y, transform.position.z },
+            Rotation = new[] { transform.rotation.x, transform.rotation.y, transform.rotation.z, transform.rotation.w }
+        };
+    }
+
+    private void RestorePlayerState(PlayerSaveData data)
+    {
+        Vector3 position = new Vector3(data.Position[0], data.Position[1], data.Position[2]);
+        Quaternion rotation = new Quaternion(data.Rotation[0], data.Rotation[1], data.Rotation[2], data.Rotation[3]);
 
         var cc = GetComponent<CharacterController>();
         if (cc != null) cc.enabled = false;
         transform.position = position;
         transform.rotation = rotation;
         if (cc != null) cc.enabled = true;
+    }
 
-        // 2. Восстанавливаем состояние каждого члена партии
-        foreach (var memberSave in saveData.Party)
+    private PartyMemberSaveData CapturePartyMemberState(CharacterStats member)
+    {
+        var inventory = member.GetComponent<Inventory>();
+        var inventoryItems = inventory?.Items
+            .Where(itemSlot => itemSlot?.ItemData != null)
+            .Select(itemSlot => new InventorySlotSaveData
+            {
+                ItemDataName = itemSlot.ItemData.name,
+                Quantity = itemSlot.Quantity
+            }).ToList() ?? new List<InventorySlotSaveData>();
+        
+        var abilities = member.GetComponent<CharacterAbilities>();
+        var abilitiesData = abilities?.LearnedAbilities
+            .Where(slot => slot?.AbilityData != null)
+            .Select(slot => new AbilitySaveData
+            {
+                AbilityDataName = slot.AbilityData.name,
+                CurrentCharges = slot.CurrentCharges
+            }).ToList() ?? new List<AbilitySaveData>();
+
+        return new PartyMemberSaveData
         {
-            // Находим соответствующего члена партии в сцене по имени
-            var memberStats = partyMembers.FirstOrDefault(m => m != null && m.gameObject.name == memberSave.memberName);
-                if (memberStats != null)
+            MemberName = member.gameObject.name,
+            CurrentHealth = member.currentHealth,
+            Level = member.Level,
+            Experience = member.Experience,
+            ExperienceToNextLevel = member.ExperienceToNextLevel,
+            BaseBody = member.BaseBody,
+            BaseMind = member.BaseMind,
+            BaseSpirit = member.BaseSpirit,
+            BaseAgility = member.BaseAgility,
+            BaseProficiency = member.BaseProficiency,
+            InventoryItems = inventoryItems,
+            AbilitiesData = abilitiesData
+        };
+    }
+
+    private void RestorePartyMemberState(CharacterStats member, PartyMemberSaveData data)
+    {
+        member.RestoreBaseStatsFromSave(data);
+        
+        var inventory = member.GetComponent<Inventory>();
+        if (inventory != null)
+        {
+            inventory.Clear();
+            foreach (var savedSlot in data.InventoryItems)
+            {
+                ItemData itemData = Resources.Load<ItemData>($"Items/{savedSlot.ItemDataName}");
+                if (itemData != null)
                 {
-                    // Восстанавливаем базовые атрибуты, уровень и опыт
-                    memberStats.baseBody = memberSave.baseBody;
-                    memberStats.baseMind = memberSave.baseMind;
-                    memberStats.baseSpirit = memberSave.baseSpirit;
-                    memberStats.baseAgility = memberSave.baseAgility;
-                    memberStats.baseProficiency = memberSave.baseProficiency;
-                    memberStats.level = memberSave.level;
-                    memberStats.experience = memberSave.experience;
-                    memberStats.experienceToNextLevel = memberSave.experienceToNextLevel;
-                    memberStats.currentHealth = memberSave.currentHealth;
-
-                    // Восстанавливаем инвентарь
-                    var inventory = memberStats.GetComponent<Inventory>();
-                    if (inventory != null)
-                    {
-                        inventory.items.Clear();
-                        foreach (var savedSlot in memberSave.inventoryItems)
-                        {
-                            ItemData itemData = Resources.Load<ItemData>($"Items/{savedSlot.itemDataName}");
-                            if (itemData != null)
-                            {
-                                // Используем AddItem, чтобы он сам нашел место.
-                                // Для восстановления точной позиции потребуется более сложная логика.
-                                inventory.AddItem(itemData, savedSlot.quantity);
-                            }
-                        }
-                    }
-
-                    // Восстанавливаем способности
-                    var abilities = memberStats.GetComponent<CharacterAbilities>();
-                    if (abilities != null)
-                    {
-                        foreach (var savedAbility in memberSave.abilitiesData)
-                        {
-                            var slot = abilities.LearnedAbilities.FirstOrDefault(s => s.abilityData != null && s.abilityData.name == savedAbility.abilityDataName);
-                            if (slot != null)
-                            {
-                                slot.currentCharges = savedAbility.currentCharges;
-                            }
-                        }
-                    }
-
-                    // После установки всех данных, вызываем Refresh, чтобы пересчитать производные статы и обновить UI
-                    memberStats.RefreshStatsAfterLoad();
-
-                    // Дополнительно вызываем события для UI, которые не обновляются через RefreshStatsAfterLoad
-                    abilities?.TriggerAbilitiesChanged();
-                    memberStats.GetComponent<Inventory>()?.TriggerInventoryChanged();
+                    inventory.AddItem(itemData, savedSlot.Quantity);
+                }
             }
         }
         
-        // В конце принудительно обновляем весь UI партии
-        FindObjectOfType<PartyUIManager>()?.RefreshAllPartyMemberUIs();
-    }
-}
+        var abilities = member.GetComponent<CharacterAbilities>();
+        if (abilities != null)
+        {
+            foreach (var savedAbility in data.AbilitiesData)
+            {
+                var slot = abilities.LearnedAbilities.FirstOrDefault(s => s.AbilityData != null && s.AbilityData.name == savedAbility.AbilityDataName);
+                if (slot != null)
+                {
+                    slot.CurrentCharges = savedAbility.CurrentCharges;
+                }
+            }
+        }
 
+        member.RefreshStatsAfterLoad();
+        abilities?.TriggerAbilitiesChanged();
+        inventory?.TriggerInventoryChanged();
+    }
     #endregion
 }

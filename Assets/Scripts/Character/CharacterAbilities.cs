@@ -1,161 +1,143 @@
-using UnityEngine;
 using System.Collections.Generic;
 using System.Linq;
+using UnityEngine;
+using System;
 
-[System.Serializable]
+/// <summary>
+/// Хранит состояние способности персонажа (заряды, кулдауны).
+/// </summary>
+[Serializable]
 public class AbilitySlot
 {
-    public AbilityData abilityData;
-    public int currentCharges;
-    public float currentCooldownTimer;
-
+    public AbilityData AbilityData;
+    public int CurrentCharges;
+    public float CurrentCooldownTimer;
     public AbilitySlot(AbilityData data)
     {
-        abilityData = data;
-        currentCharges = data.maxCharges;
-        currentCooldownTimer = 0f;
+        AbilityData = data;
+        CurrentCharges = data.MaxCharges;
+        CurrentCooldownTimer = 0f;
     }
 
-    public bool IsReady()
-    {
-        return currentCharges > 0 && currentCooldownTimer <= 0f;
-    }
+    public bool IsReady() => CurrentCharges > 0 && CurrentCooldownTimer <= 0f;
 
     public void Use()
     {
-        if (abilityData.maxCharges > 0) 
+        if (AbilityData.MaxCharges > 0)
         {
-            currentCharges--;
+            CurrentCharges--;
         }
-        currentCooldownTimer = abilityData.cooldown;
+        CurrentCooldownTimer = AbilityData.Cooldown;
     }
 
     public void RestoreAllCharges()
     {
-        currentCharges = abilityData.maxCharges;
+        CurrentCharges = AbilityData.MaxCharges;
     }
 }
 
+/// <summary>
+/// Управляет способностями, которые знает и может использовать персонаж.
+/// </summary>
+[RequireComponent(typeof(CharacterStats))]
 public class CharacterAbilities : MonoBehaviour, ISaveable
 {
+    [SerializeField]
     [Tooltip("Список способностей, которые персонаж знает изначально.")]
-    public List<AbilityData> initialAbilities = new List<AbilityData>();
+    private List<AbilityData> initialAbilities = new List<AbilityData>();
 
-    private List<AbilitySlot> learnedAbilities = new List<AbilitySlot>();
+    private readonly List<AbilitySlot> learnedAbilities = new List<AbilitySlot>();
+    private AudioSource audioSource;
     public IReadOnlyList<AbilitySlot> LearnedAbilities => learnedAbilities.AsReadOnly();
 
-    private CharacterStats characterStats;
-    public CharacterStats OwnerStats => characterStats;
+    public CharacterStats OwnerStats { get; private set; }
+    public event Action OnAbilitiesChanged;
 
-    public event System.Action OnAbilitiesChanged;
-
-    void Awake()
+    private void Awake()
     {
-        characterStats = GetComponent<CharacterStats>();
+        OwnerStats = GetComponent<CharacterStats>();
+        audioSource = OwnerStats.GetComponent<AudioSource>();
+        
         foreach (AbilityData data in initialAbilities)
         {
             LearnAbility(data);
         }
     }
 
-    void Update()
+    private void Update()
     {
+        // Оптимизация: выходим, если нет активных кулдаунов, чтобы не вызывать событие каждый кадр.
+        if (learnedAbilities.All(slot => slot.CurrentCooldownTimer <= 0)) return;
+
         bool anyCooldownChanged = false;
         foreach (AbilitySlot slot in learnedAbilities)
         {
-            if (slot.currentCooldownTimer > 0)
+            if (slot.CurrentCooldownTimer > 0)
             {
-                slot.currentCooldownTimer -= Time.deltaTime;
-                if (slot.currentCooldownTimer < 0) slot.currentCooldownTimer = 0;
+                slot.CurrentCooldownTimer -= Time.deltaTime;
+                if (slot.CurrentCooldownTimer < 0)
+                {
+                    slot.CurrentCooldownTimer = 0;
+                }
                 anyCooldownChanged = true;
             }
         }
+
         if (anyCooldownChanged)
         {
             OnAbilitiesChanged?.Invoke();
         }
     }
 
+    /// <summary>
+    /// Добавляет новую способность персонажу.
+    /// </summary>
     public void LearnAbility(AbilityData ability)
     {
-        if (ability == null) return;
-        if (!learnedAbilities.Any(slot => slot.abilityData == ability))
-        {
-            learnedAbilities.Add(new AbilitySlot(ability));
-            OnAbilitiesChanged?.Invoke();
-        }
+        if (ability == null || learnedAbilities.Any(slot => slot.AbilityData == ability)) return;
+
+        learnedAbilities.Add(new AbilitySlot(ability));
+        OnAbilitiesChanged?.Invoke();
     }
 
-    public AbilitySlot GetAbilitySlot(AbilityData abilityData)
-    {
-        return learnedAbilities.FirstOrDefault(slot => slot.abilityData == abilityData);
-    }
-
+    /// <summary>
+    /// Возвращает слот способности по индексу в списке изученных.
+    /// </summary>
     public AbilitySlot GetAbilitySlotByIndex(int index)
     {
-        if (index >= 0 && index < learnedAbilities.Count)
-        {
-            return learnedAbilities[index];
-        }
-        return null;
+        bool isIndexValid = index >= 0 && index < learnedAbilities.Count;
+        return isIndexValid ? learnedAbilities[index] : null;
     }
-
-    public bool CanUseAbility(AbilitySlot slot)
+    
+    /// <summary>
+    /// Пытается исполнить способность. Основная логика вынесена в AbilityExecutor.
+    /// </summary>
+    /// <returns>True, если способность была успешно запущена.</returns>
+    public bool TryUseAbility(AbilitySlot slot, Transform targetTransform, Vector3 point)
     {
-        if (slot != null)
-        {
-            return slot.IsReady();
-        }
-        return false;
-    }
+        if (slot == null || !slot.IsReady()) return false;
 
-public bool TryUseAbility(
-    AbilitySlot slot,
-    CharacterStats caster,
-    FeedbackManager feedbackMgr,
-    Transform targetTransformForAbility,
-    Vector3 pointForAbility,
-    AbilityData sourceAbilityRef)
-{
-    if (slot == null || caster == null || !CanUseAbility(slot))
-    {
-        return false;
-    }
+        slot.Use();
+        PlayAbilityEffects(slot.AbilityData);
 
-    // ТЕПЕРЬ МЫ ТРАТИМ ЗАРЯД ЗДЕСЬ, В МОМЕНТ ИСПОЛНЕНИЯ
-    slot.Use();
-
-    if (sourceAbilityRef.castSound != null)
-    {
-        AudioSource audioSource = caster.GetComponent<AudioSource>();
-        if (audioSource == null) audioSource = caster.gameObject.AddComponent<AudioSource>();
-        if (audioSource != null) audioSource.PlayOneShot(sourceAbilityRef.castSound);
-    }
-
-        if (sourceAbilityRef.startVFXPrefab != null)
-        {
-            Instantiate(sourceAbilityRef.startVFXPrefab, caster.transform.position, caster.transform.rotation, caster.transform);
-        }
-
-        CharacterStats primarySingleTargetStats = null;
-        if (targetTransformForAbility != null)
-        {
-            primarySingleTargetStats = targetTransformForAbility.GetComponent<CharacterStats>();
-        }
+        CharacterStats primaryTargetStats = targetTransform?.GetComponent<CharacterStats>();
 
         AbilityExecutor.Execute(
-            caster,
-            sourceAbilityRef,
-            primarySingleTargetStats,
-            targetTransformForAbility,
-            pointForAbility,
-            feedbackMgr
+            OwnerStats,
+            slot.AbilityData,
+            primaryTargetStats,
+            targetTransform,
+            point,
+            FindObjectOfType<FeedbackManager>() // TODO: Рассмотреть инъекцию зависимости вместо FindObjectOfType
         );
 
         OnAbilitiesChanged?.Invoke();
         return true;
     }
-
+    
+    /// <summary>
+    /// Восстанавливает все заряды всех способностей.
+    /// </summary>
     public void RestoreAllAbilityCharges()
     {
         foreach (AbilitySlot slot in learnedAbilities)
@@ -164,23 +146,30 @@ public bool TryUseAbility(
         }
         OnAbilitiesChanged?.Invoke();
     }
-    
-    #region SaveSystem
-    
+
+    private void PlayAbilityEffects(AbilityData AbilityData)
+    {
+        if (AbilityData.CastSound != null && audioSource != null)
+        {
+            audioSource.PlayOneShot(AbilityData.CastSound);
+        }
+
+        if (AbilityData.StartVFXPrefab != null)
+        {
+            Instantiate(AbilityData.StartVFXPrefab, OwnerStats.transform.position, OwnerStats.transform.rotation, OwnerStats.transform);
+        }
+    }
+
+    #region Save System Implementation
     public object CaptureState()
     {
-        var abilitiesState = new List<AbilitySaveData>();
-        foreach (var slot in learnedAbilities)
-        {
-            if (slot.abilityData == null) continue;
-            
-            abilitiesState.Add(new AbilitySaveData
+        return learnedAbilities
+            .Where(slot => slot.AbilityData != null)
+            .Select(slot => new AbilitySaveData
             {
-                abilityDataName = slot.abilityData.name,
-                currentCharges = slot.currentCharges
-            });
-        }
-        return abilitiesState;
+                AbilityDataName = slot.AbilityData.name,
+                CurrentCharges = slot.CurrentCharges
+            }).ToList();
     }
 
     public void RestoreState(object state)
@@ -189,22 +178,19 @@ public bool TryUseAbility(
         {
             foreach (var savedAbility in abilitiesState)
             {
-                var slot = learnedAbilities.FirstOrDefault(s => s.abilityData != null && s.abilityData.name == savedAbility.abilityDataName);
+                var slot = learnedAbilities.FirstOrDefault(s => s.AbilityData != null && s.AbilityData.name == savedAbility.AbilityDataName);
                 if (slot != null)
                 {
-                    slot.currentCharges = savedAbility.currentCharges;
+                    slot.CurrentCharges = savedAbility.CurrentCharges;
                 }
             }
             OnAbilitiesChanged?.Invoke();
         }
     }
-/// <summary>
-/// Принудительно вызывает событие OnAbilitiesChanged.
-/// Используется после загрузки для обновления UI.
-/// </summary>
-public void TriggerAbilitiesChanged()
-{
-    OnAbilitiesChanged?.Invoke();
-}
+    
+    public void TriggerAbilitiesChanged()
+    {
+        OnAbilitiesChanged?.Invoke();
+    }
     #endregion
 }

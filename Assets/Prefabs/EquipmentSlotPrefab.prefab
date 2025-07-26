@@ -63,6 +63,7 @@ MonoBehaviour:
   slotType: -1
   itemIcon: {fileID: 1643751235989619915}
   placeholderIcon: {fileID: 1518890713717976851}
+  inventoryItemPrefab: {fileID: 4450643506236278853, guid: 1f80bed6fba49964888dabdfcde24790, type: 3}
 --- !u!225 &4148288200602364746
 CanvasGroup:
   m_ObjectHideFlags: 0

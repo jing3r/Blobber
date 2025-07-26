@@ -1,184 +1,157 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 using System.Collections.Generic;
-using System.Linq;
 using UnityEngine.EventSystems;
+using System.Linq;
 
+/// <summary>
+/// Центральный обработчик ввода игрока.
+/// Получает события от PlayerInput и делегирует их соответствующим системам (PartyManager, TargetingSystem и т.д.).
+/// </summary>
 public class InputManager : MonoBehaviour
 {
-    [Header("Ссылки")]
-    [SerializeField] private PartyManager partyManager;
-    [SerializeField] private TargetingSystem targetingSystem;
-    [SerializeField] private FeedbackManager feedbackManager;
-    [SerializeField] private PlayerGlobalActions playerGlobalActions;
-    [SerializeField] private InventoryUIManager inventoryUIManager;
-
-    [Header("Настройки")]
-    [Tooltip("Общая дистанция для действий, если не указано иное")]
+    [Header("Настройки действий")]
     [SerializeField] private float actionDistance = 4f;
     [SerializeField] private LayerMask creatureLayerMask;
     [SerializeField] private LayerMask interactableLayerMask;
     [SerializeField] private LayerMask groundLayerMask;
 
+    private PartyManager partyManager;
+    private TargetingSystem targetingSystem;
+    private FeedbackManager feedbackManager;
+    private PlayerGlobalActions playerGlobalActions;
+    private InventoryUIManager inventoryUIManager;
+
     private Dictionary<string, int> abilityKeymap;
     private CharacterStats hoveredPartyMemberTarget;
 
-    void Awake()
+    #region Unity Lifecycle & Initialization
+    private void Awake()
     {
-        if (inventoryUIManager == null) inventoryUIManager = FindObjectOfType<InventoryUIManager>();
-        if (partyManager == null) partyManager = GetComponent<PartyManager>();
-        if (targetingSystem == null) targetingSystem = GetComponent<TargetingSystem>();
-        if (feedbackManager == null) feedbackManager = FindObjectOfType<FeedbackManager>();
-        if (playerGlobalActions == null) playerGlobalActions = GetComponent<PlayerGlobalActions>();
+        partyManager = GetComponentInParent<PartyManager>();
+        targetingSystem = GetComponentInParent<TargetingSystem>();
+        playerGlobalActions = GetComponentInParent<PlayerGlobalActions>();
+        inventoryUIManager = FindObjectOfType<InventoryUIManager>();
+        feedbackManager = FindObjectOfType<FeedbackManager>();
 
         InitializeAbilityKeymap();
     }
 
     private void InitializeAbilityKeymap()
     {
-        abilityKeymap = new Dictionary<string, int>
+        abilityKeymap = new Dictionary<string, int>();
+        for (int i = 1; i <= 12; i++)
         {
-            {"Ability1", 0}, {"Ability2", 1}, {"Ability3", 2}, {"Ability4", 3},
-            {"Ability5", 4}, {"Ability6", 5}, {"Ability7", 6}, {"Ability8", 7},
-            {"Ability9", 8}, {"Ability10", 9}, {"Ability11", 10}, {"Ability12", 11}
-        };
+            abilityKeymap.Add($"Ability{i}", i - 1);
+        }
     }
+    #endregion
 
-    public void SetHoveredPartyMember(CharacterStats memberStats) { hoveredPartyMemberTarget = memberStats; }
-    public void ClearHoveredPartyMember(CharacterStats memberStats) { if (hoveredPartyMemberTarget == memberStats) hoveredPartyMemberTarget = null; }
-
-    #region Character Selection & Actions
-
-    // --- Выбор персонажей (1-6) ---
-    public void OnSelectCharacter1(InputAction.CallbackContext context) { if (context.performed) SelectCharacter(0); }
-    public void OnSelectCharacter2(InputAction.CallbackContext context) { if (context.performed) SelectCharacter(1); }
-    public void OnSelectCharacter3(InputAction.CallbackContext context) { if (context.performed) SelectCharacter(2); }
-    public void OnSelectCharacter4(InputAction.CallbackContext context) { if (context.performed) SelectCharacter(3); }
-    public void OnSelectCharacter5(InputAction.CallbackContext context) { if (context.performed) SelectCharacter(4); }
-    public void OnSelectCharacter6(InputAction.CallbackContext context) { if (context.performed) SelectCharacter(5); }
-    private void SelectCharacter(int index)
+    #region Public Setters (Called by UI events)
+    public void SetHoveredPartyMember(CharacterStats memberStats) => hoveredPartyMemberTarget = memberStats;
+    public void ClearHoveredPartyMember(CharacterStats memberStats)
     {
-        // Если мы нажимаем на клавишу персонажа, который УЖЕ активен,
-        // то мы открываем/закрываем его инвентарь.
-        if (partyManager.ActiveMember != null && partyManager.partyMembers.IndexOf(partyManager.ActiveMember) == index)
+        if (hoveredPartyMemberTarget == memberStats)
         {
-            // ИСПРАВЛЕННЫЙ ВЫЗОВ
+            hoveredPartyMemberTarget = null;
+        }
+    }
+    #endregion
+
+    #region Character Selection Handlers
+    public void OnSelectCharacter1(InputAction.CallbackContext context) => HandleCharacterSelection(context, 0);
+    public void OnSelectCharacter2(InputAction.CallbackContext context) => HandleCharacterSelection(context, 1);
+    public void OnSelectCharacter3(InputAction.CallbackContext context) => HandleCharacterSelection(context, 2);
+    public void OnSelectCharacter4(InputAction.CallbackContext context) => HandleCharacterSelection(context, 3);
+    public void OnSelectCharacter5(InputAction.CallbackContext context) => HandleCharacterSelection(context, 4);
+    public void OnSelectCharacter6(InputAction.CallbackContext context) => HandleCharacterSelection(context, 5);
+
+    private void HandleCharacterSelection(InputAction.CallbackContext context, int index)
+    {
+        if (!context.performed) return;
+
+        // Повторное нажатие на клавишу активного персонажа открывает/закрывает его инвентарь
+        if (partyManager.ActiveMember != null && partyManager.PartyMembers.ToList().IndexOf(partyManager.ActiveMember) == index)
+        {
             inventoryUIManager?.TogglePartyMemberInventory(index);
         }
-        else // Иначе, мы просто меняем активного персонажа
+        else
         {
             partyManager.SetActiveMember(index);
         }
     }
 
-    public void OnCycleNextReadyCharacter(InputAction.CallbackContext context) { if (context.performed) partyManager.CycleToNextReadyMember(); }
+    public void OnCycleNextReadyCharacter(InputAction.CallbackContext context)
+    {
+        if (context.performed)
+        {
+            partyManager.CycleToNextReadyMember();
+        }
+    }
+    #endregion
 
-    // --- Форсированное ВЗАИМОДЕЙСТВИЕ (клавиша E) ---
-    public void OnInteract(InputAction.CallbackContext context)
+    #region World Interaction Handlers
+    public void OnPrimaryAction(InputAction.CallbackContext context)
     {
         if (!context.performed) return;
-
-        // --- ИЗМЕНЕНИЕ: Используем объединенную маску ---
+        if (IsPointerOverUI()) return;
         LayerMask combinedMask = creatureLayerMask | interactableLayerMask;
-
-        // Используем общую дистанцию, чтобы достать до трупов
-        if (targetingSystem.TryGetTarget(actionDistance, combinedMask, out RaycastHit hit))
+        if (targetingSystem.TryGetTarget(actionDistance, combinedMask, out var hit))
         {
-            var interactable = hit.collider.GetComponent<Interactable>();
-            if (interactable != null)
+            if (hit.collider.TryGetComponent<CharacterStats>(out var targetStats) && !partyManager.PartyMembers.ToList().Contains(targetStats))
             {
-                // Успех! Взаимодействуем.
+                if (!targetStats.IsDead)
+                {
+                    partyManager.ActiveMember?.GetComponent<CharacterActionController>()?.TryAttack(targetStats);
+                    return;
+                }
+            }
+            
+            if (hit.collider.TryGetComponent<Interactable>(out var interactable))
+            {
                 feedbackManager?.ShowFeedbackMessage(interactable.Interact());
                 return;
             }
         }
-
-        // Если ничего интерактивного не найдено
-        feedbackManager?.ShowFeedbackMessage("There is nothing to interact with.");
+        else
+        {
+            feedbackManager?.ShowFeedbackMessage("Nothing to do here.");
+        }
     }
 
-    // --- Форсированная АТАКА (клавиша F) ---
+    public void OnInteract(InputAction.CallbackContext context)
+    {
+        if (!context.performed) return;
+        if (IsPointerOverUI()) return;
+        LayerMask combinedMask = interactableLayerMask | creatureLayerMask;
+        if (targetingSystem.TryGetTarget(actionDistance, combinedMask, out var hit) && hit.collider.TryGetComponent<Interactable>(out var interactable))
+        {
+            feedbackManager?.ShowFeedbackMessage(interactable.Interact());
+        }
+        else
+        {
+            feedbackManager?.ShowFeedbackMessage("There is nothing to interact with.");
+        }
+    }
+
     public void OnForceAttack(InputAction.CallbackContext context)
     {
         if (!context.performed) return;
-
-        var activeController = partyManager.ActiveMember?.GetComponent<CharacterActionController>();
-        if (activeController == null || activeController.CurrentState != CharacterActionController.ActionState.Ready)
+        if (IsPointerOverUI()) return;
+        if (targetingSystem.TryGetTarget(actionDistance, creatureLayerMask, out var hit) && hit.collider.TryGetComponent<CharacterStats>(out var targetStats))
         {
-            feedbackManager?.ShowFeedbackMessage("Active character is not ready.");
-            return;
-        }
-
-        if (targetingSystem.TryGetTarget(actionDistance, creatureLayerMask, out RaycastHit hit))
-        {
-            var targetStats = hit.collider.GetComponent<CharacterStats>();
-            if (targetStats != null && !partyManager.partyMembers.Contains(targetStats))
+            if (!partyManager.PartyMembers.ToList().Contains(targetStats))
             {
-                activeController.TryAttack(targetStats);
+                partyManager.ActiveMember?.GetComponent<CharacterActionController>()?.TryAttack(targetStats);
                 return;
             }
         }
+
         feedbackManager?.ShowFeedbackMessage("No valid target to attack.");
     }
-
-    // --- Основное ("умное") ДЕЙСТВИЕ (ЛКМ) ---
-    public void OnPrimaryAction(InputAction.CallbackContext context)
-    {
-        if (!context.performed) return;
-
-        // --- НОВАЯ, БОЛЕЕ НАДЕЖНАЯ ЛОГИКА ---
-
-        // Сначала делаем один рейкаст, чтобы понять, на что мы вообще смотрим.
-        // Используем объединенную маску.
-        LayerMask combinedMask = creatureLayerMask | interactableLayerMask;
-        if (targetingSystem.TryGetTarget(actionDistance, combinedMask, out RaycastHit hit))
-        {
-            CharacterStats targetCharacter = hit.collider.GetComponent<CharacterStats>();
-            Interactable targetInteractable = hit.collider.GetComponent<Interactable>();
-
-            // Сценарий 1: Цель - это СУЩЕСТВО (живое или мертвое)
-            if (targetCharacter != null)
-            {
-                // Проверяем, не союзник ли это
-                if (partyManager.partyMembers.Contains(targetCharacter))
-                {
-                    feedbackManager?.ShowFeedbackMessage("Cannot target a party member.");
-                    return;
-                }
-
-                // Если цель ЖИВА, пытаемся атаковать
-                if (!targetCharacter.IsDead)
-                {
-                    var activeController = partyManager.ActiveMember?.GetComponent<CharacterActionController>();
-                    if (activeController != null && activeController.CurrentState == CharacterActionController.ActionState.Ready)
-                    {
-                        activeController.TryAttack(targetCharacter);
-                    }
-                    else
-                    {
-                        feedbackManager?.ShowFeedbackMessage("Active character is not ready.");
-                    }
-                    return; // Действие (или попытка) совершено.
-                }
-                // Если цель МЕРТВА, то она становится просто интерактивным объектом (трупом)
-                // и будет обработана в следующем блоке.
-            }
-
-            // Сценарий 2: Цель - это ИНТЕРАКТИВНЫЙ ОБЪЕКТ (дверь, сундук, или труп из сценария 1)
-            if (targetInteractable != null)
-            {
-                feedbackManager?.ShowFeedbackMessage(targetInteractable.Interact());
-                return;
-            }
-        }
-
-        // Если ни на что не попали
-        feedbackManager?.ShowFeedbackMessage("Nothing to do here.");
-    }
-
     #endregion
 
-    #region Ability Casting
+    #region Ability Casting Handler
     public void OnUseAbility(InputAction.CallbackContext context)
     {
         if (!context.performed) return;
@@ -189,149 +162,143 @@ public class InputManager : MonoBehaviour
         if (!abilityKeymap.TryGetValue(context.action.name, out int abilityIndex)) return;
 
         var abilitySlot = activeController.GetComponent<CharacterAbilities>()?.GetAbilitySlotByIndex(abilityIndex);
-        if (abilitySlot == null || abilitySlot.abilityData == null) return;
+        if (abilitySlot == null) return;
 
-        var ability = abilitySlot.abilityData;
+        ResolveAbilityTargetAndCast(activeController, abilityIndex, abilitySlot.AbilityData);
+    }
 
+    private void ResolveAbilityTargetAndCast(CharacterActionController caster, int index, AbilityData ability)
+    {
+        float range = ability.Range > 0 ? ability.Range : actionDistance;
         CharacterStats targetCreature = null;
         Transform targetInteractable = null;
         Vector3 targetPoint = Vector3.zero;
-        float range = ability.range > 0 ? ability.range : actionDistance;
 
-        bool targetFound = false;
-
-        bool isCursorOnPartyUI = playerGlobalActions?.IsCursorFree ?? false;
-        if (isCursorOnPartyUI && hoveredPartyMemberTarget != null && ability.targetType == TargetType.Single_Creature)
+        // 1. Проверяем цель по наведению курсора на UI партии
+        if (playerGlobalActions.IsCursorFree && hoveredPartyMemberTarget != null)
         {
             targetCreature = hoveredPartyMemberTarget;
-            targetFound = true;
         }
-
-        if (!targetFound)
+        else // 2. Если не на UI, ищем цель в мире
         {
-            switch (ability.targetType)
+            switch (ability.TargetType)
             {
-                case TargetType.Self:
-                case TargetType.AreaAroundCaster:
-                    targetFound = true;
-                    break;
-
                 case TargetType.Single_Creature:
-                    if (targetingSystem.TryGetTarget(range, creatureLayerMask, out RaycastHit creatureHit))
-                    {
-                        targetCreature = creatureHit.collider.GetComponent<CharacterStats>();
-                        if (targetCreature != null) targetFound = true;
-                    }
+                    if (targetingSystem.TryGetTarget(range, creatureLayerMask, out var hit))
+                        targetCreature = hit.collider.GetComponent<CharacterStats>();
                     break;
-
-                // --- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ ЗДЕСЬ ---
                 case TargetType.Single_Interactable:
-                    // Ищем цель на ОБЪЕДИНЕННОЙ маске слоев
-                    LayerMask combinedMask = creatureLayerMask | interactableLayerMask;
-                    if (targetingSystem.TryGetTarget(range, combinedMask, out RaycastHit interactableHit))
-                    {
-                        // А теперь проверяем, есть ли на найденном объекте компонент Interactable
-                        if (interactableHit.collider.GetComponent<Interactable>() != null)
-                        {
-                            // Нашли! Это может быть дверь, сундук или труп.
-                            targetInteractable = interactableHit.transform;
-                            targetFound = true;
-                        }
-                    }
+                    if (targetingSystem.TryGetTarget(range, interactableLayerMask | creatureLayerMask, out hit))
+                        targetInteractable = hit.transform;
                     break;
-
                 case TargetType.Point_GroundTargeted:
-                    if (targetingSystem.TryGetGroundPoint(range, groundLayerMask, out targetPoint))
-                    {
-                        targetFound = true;
-                    }
+                    targetingSystem.TryGetGroundPoint(range, groundLayerMask, out targetPoint);
                     break;
             }
         }
 
-        if (targetFound)
+        // 3. Выполняем действие
+        if (IsTargetValidForAbility(ability.TargetType, targetCreature, targetInteractable, targetPoint))
         {
-            activeController.TryUseAbility(abilityIndex, targetCreature, targetInteractable, targetPoint);
+            caster.TryUseAbility(index, targetCreature, targetInteractable, targetPoint);
         }
         else
         {
-            feedbackManager?.ShowFeedbackMessage($"{ability.abilityName}: No valid target found.");
+            feedbackManager?.ShowFeedbackMessage($"{ability.AbilityName}: No valid target found.");
         }
     }
 
+    private bool IsTargetValidForAbility(TargetType type, CharacterStats creature, Transform interactable, Vector3 point)
+    {
+        switch (type)
+        {
+            case TargetType.Self:
+            case TargetType.AreaAroundCaster:
+                return true;
+            case TargetType.Single_Creature:
+                return creature != null;
+            case TargetType.Single_Interactable:
+                return interactable != null && interactable.GetComponent<Interactable>() != null;
+            case TargetType.Point_GroundTargeted:
+                return point != Vector3.zero; // TryGetGroundPoint вернет zero в случае неудачи
+            default:
+                return false;
+        }
+    }
     #endregion
 
-    #region UI Actions
-
-
+    #region UI Action Handlers
     public void OnToggleInventory(InputAction.CallbackContext context)
     {
-        if (!context.performed) return;
+        if (!context.performed || partyManager.ActiveMember == null) return;
 
-        var activeMember = partyManager.ActiveMember;
-        if (activeMember != null)
+        int activeIndex = partyManager.PartyMembers.ToList().IndexOf(partyManager.ActiveMember);
+        if (activeIndex != -1)
         {
-            // ИСПРАВЛЕННЫЙ ВЫЗОВ
-            int activeIndex = partyManager.partyMembers.IndexOf(activeMember);
             inventoryUIManager?.TogglePartyMemberInventory(activeIndex);
         }
     }
 
     public void OnToggleAllPartyInventories(InputAction.CallbackContext context)
     {
-        if (!context.performed) return;
-        inventoryUIManager?.ToggleAllPartyWindows();
+        if (context.performed)
+        {
+            inventoryUIManager?.ToggleAllPartyWindows();
+        }
     }
+
     public void OnTakeAll(InputAction.CallbackContext context)
     {
-        if (!context.performed) return;
-
-        // Этот метод должен вызвать логику "Взять всё" в InventoryUIManager
-        inventoryUIManager?.TakeAllFromOpenContainer();
+        if (context.performed)
+        {
+            inventoryUIManager?.TakeAllFromOpenContainer();
+        }
     }
+
     public void OnArrangeInventory(InputAction.CallbackContext context)
     {
         if (!context.performed) return;
 
-        PointerEventData pointerData = new PointerEventData(EventSystem.current);
-        pointerData.position = Mouse.current.position.ReadValue();
+        var pointerEventData = new PointerEventData(EventSystem.current) { position = Mouse.current.position.ReadValue() };
+        var results = new List<RaycastResult>();
+        EventSystem.current.RaycastAll(pointerEventData, results);
 
-        List<RaycastResult> results = new List<RaycastResult>();
-        EventSystem.current.RaycastAll(pointerData, results);
-
-        InventoryGridUI gridUnderMouse = null;
         foreach (var result in results)
         {
-            gridUnderMouse = result.gameObject.GetComponentInParent<InventoryGridUI>();
-            if (gridUnderMouse != null) break;
+            if (result.gameObject.TryGetComponent<InventoryGridUI>(out var gridUI))
+            {
+                gridUI.GetLinkedInventory()?.ToggleArrange();
+                return;
+            }
         }
 
-        if (gridUnderMouse != null)
+        feedbackManager?.ShowFeedbackMessage("Hover over an inventory to arrange it.");
+    }
+
+    public void OnCancel(InputAction.CallbackContext context)
+    {
+        if (!context.performed) return;
+
+        if (inventoryUIManager != null && inventoryUIManager.AreAnyWindowsOpen())
         {
-            // --- ИЗМЕНЕНИЕ: Вызываем новый метод-переключатель ---
-            gridUnderMouse.GetLinkedInventory()?.ToggleArrange();
+            inventoryUIManager.CloseAllWindows();
         }
         else
         {
-            feedbackManager?.ShowFeedbackMessage("Hover over an inventory to arrange it.");
+            // TODO: Открыть главное меню/меню паузы
         }
     }
-
-    // Добавляем новый обработчик
-public void OnCancel(InputAction.CallbackContext context)
-{
-    if (!context.performed) return;
-
-    // Спрашиваем у UI менеджера, есть ли открытые окна
-    if (inventoryUIManager.AreAnyWindowsOpen())
+    
+        private bool IsPointerOverUI()
     {
-        // Если есть, закрываем все
-        inventoryUIManager.CloseAllWindows();
+        var eventData = new PointerEventData(EventSystem.current);
+        eventData.position = Mouse.current.position.ReadValue();
+        
+        var results = new List<RaycastResult>();
+        
+        EventSystem.current.RaycastAll(eventData, results);
+        
+        return results.Count > 0;
     }
-    else
-    {
-        // Если окон нет, здесь в будущем будет открываться главное меню
-    }
-}
     #endregion
 }

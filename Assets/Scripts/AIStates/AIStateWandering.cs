@@ -1,69 +1,56 @@
 using UnityEngine;
 
+/// <summary>
+/// Состояние блуждания. AI движется к случайно выбранной точке.
+/// </summary>
 public class AIStateWandering : IAIState
 {
     public AIController.AIState GetStateType() => AIController.AIState.Wandering;
-    
+
     public void EnterState(AIController controller)
     {
-        // Debug.Log($"{controller.gameObject.name} entering Wandering state.");
-        // AIWanderBehavior.TrySetNewWanderDestination уже вызывает movement.MoveTo()
-        // Так что здесь не нужно вызывать movement.ResumeMovement()
-        // Если AI вошел сюда, но у него нет активной точки блуждания, пусть AIWanderBehavior это обрабатывает
-        if (!controller.WanderBehavior.IsWanderingToActiveDestination)
+        // Если по какой-то причине мы вошли в это состояние, не имея цели,
+        // немедленно пытаемся ее найти или вернуться в Idle.
+        if (!controller.WanderBehavior.IsWandering)
         {
-            // Если нет активной цели, попробуем найти ее. Если не получится, вернемся в Idle.
-            if (!controller.WanderBehavior.TrySetNewWanderDestination(controller.transform.position))
+            if (!controller.WanderBehavior.TrySetNewWanderDestination())
             {
                 controller.ChangeState(AIController.AIState.Idle);
-                return;
             }
         }
+    }
+    
+    public void ExitState(AIController controller)
+    {
+        // Важно остановить блуждание при выходе из состояния, чтобы сбросить таймер.
+        controller.WanderBehavior.StopWandering();
     }
 
     public void UpdateState(AIController controller)
     {
-        // Приоритет 1: Проверка на необходимость бегства при виде игрока (для не-враждебных)
-        if (controller.fleesOnSightOfPlayer &&
-            controller.currentAlignment != AIController.Alignment.Hostile &&
-            controller.Perception.PlayerTarget != null)
+        // Приоритет 1: Обнаружение угрозы (аналогично Idle).
+        var perceivedThreat = controller.Perception.PrimaryHostileThreat;
+        if (perceivedThreat != null)
         {
-            if (controller.Perception.IsPlayerSpottedForFleeing())
+            if (controller.FleesOnSightOfPlayer && controller.Perception.IsPlayerSpottedForFleeing())
             {
-                controller.ForceFlee(controller.Perception.PlayerTarget);
+                controller.ForceFlee(perceivedThreat);
                 return;
             }
-        }
-
-        // Приоритет 2: Проверка на новую враждебную угрозу (если AI враждебен)
-        if (controller.currentAlignment == AIController.Alignment.Hostile)
-        {
-            Transform potentialThreat = controller.Perception.GetPrimaryHostileThreatAggro();
-            if (potentialThreat != null)
+            
+            if (controller.CurrentAlignment == AIController.Alignment.Hostile)
             {
-                controller.SetCurrentThreat(potentialThreat);
-                controller.ChangeState(AIController.AIState.Chasing);
-                return;
+                controller.BecomeHostileTowards(perceivedThreat);
             }
-        }
-
-        // Логика блуждания: просто обновляем AIWanderBehavior
-        if (!controller.Movement.IsOnNavMesh() || !controller.WanderBehavior.IsWanderingToActiveDestination)
-        {
-            // Если не на NavMesh или нет активной точки блуждания, возвращаемся в Idle
-            controller.ChangeState(AIController.AIState.Idle); 
             return;
         }
-        
-        if (controller.Movement.HasReachedDestination) // Проверяем достижение цели через AIMovement
-        {
-            controller.ChangeState(AIController.AIState.Idle); // Достигли точки, переходим в Idle
-        }
-    }
 
-    public void ExitState(AIController controller)
-    {
-        // Debug.Log($"{controller.gameObject.name} exiting Wandering state.");
-        controller.WanderBehavior.StopWandering(); // Останавливаем блуждание и сбрасываем таймер
+        // Приоритет 2: Продолжение движения к цели.
+        controller.WanderBehavior.UpdateWanderState();
+        if (!controller.WanderBehavior.IsWandering)
+        {
+            // Цель достигнута, возвращаемся в Idle.
+            controller.ChangeState(AIController.AIState.Idle);
+        }
     }
 }

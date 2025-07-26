@@ -2,26 +2,26 @@ using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.EventSystems;
 
-public class EquipmentSlotUI : MonoBehaviour, IDropHandler, IPointerClickHandler
+/// <summary>
+/// Управляет одним слотом экипировки в UI.
+/// </summary>
+public class EquipmentSlotUI : MonoBehaviour, IDropHandler
 {
-    [Header("Настройки Слота")]
-    [Tooltip("Тип слота, который представляет этот UI элемент.")]
-    public EquipmentSlotType slotType;
-
-    [Header("UI Ссылки")]
-    [Tooltip("Изображение для иконки экипированного предмета.")]
+    [SerializeField] private EquipmentSlotType slotType;
     [SerializeField] private Image itemIcon;
-    [Tooltip("Изображение-заглушка, когда слот пуст.")]
     [SerializeField] private Image placeholderIcon;
+    [SerializeField] private GameObject inventoryItemPrefab; 
 
     private CharacterEquipment characterEquipment;
+    private InventoryItemUI currentItemUI;
 
+    /// <summary>
+    /// Инициализирует слот, связывая его с логикой экипировки персонажа.
+    /// </summary>
     public void Initialize(CharacterEquipment equipment)
     {
         characterEquipment = equipment;
-        // Подписываемся на событие изменения экипировки
         characterEquipment.OnEquipmentChanged += HandleEquipmentChange;
-        // Обновляем отображение при инициализации
         UpdateSlotVisuals(characterEquipment.GetItemInSlot(slotType));
     }
 
@@ -35,54 +35,50 @@ public class EquipmentSlotUI : MonoBehaviour, IDropHandler, IPointerClickHandler
 
     private void HandleEquipmentChange(EquipmentSlotType changedSlot, InventoryItem newItem)
     {
-        // Реагируем только на изменения в нашем слоте
-        if (changedSlot == this.slotType)
+        bool isTwoHandedSlot = this.slotType.HasFlag(EquipmentSlotType.Hands);
+        bool changedSlotIsTwoHanded = changedSlot.HasFlag(EquipmentSlotType.Hands);
+
+        if (changedSlot == this.slotType || (isTwoHandedSlot && changedSlotIsTwoHanded))
         {
-            UpdateSlotVisuals(newItem);
+            UpdateSlotVisuals(characterEquipment.GetItemInSlot(this.slotType));
         }
     }
 
     private void UpdateSlotVisuals(InventoryItem itemInSlot)
     {
+        if (currentItemUI != null)
+        {
+            Destroy(currentItemUI.gameObject);
+            currentItemUI = null;
+        }
+
         if (itemInSlot != null)
         {
-            itemIcon.gameObject.SetActive(true);
+            var itemUIGO = Instantiate(inventoryItemPrefab, transform);
+            currentItemUI = itemUIGO.GetComponent<InventoryItemUI>();
+            
+            currentItemUI.InitializeAsEquipped(itemInSlot);
+
             placeholderIcon.gameObject.SetActive(false);
-            itemIcon.sprite = itemInSlot.itemData.icon;
         }
         else
         {
-            itemIcon.gameObject.SetActive(false);
             placeholderIcon.gameObject.SetActive(true);
-            itemIcon.sprite = null;
         }
     }
 
-    // Обработка перетаскивания предмета ИЗ инвентаря НА этот слот
-public void OnDrop(PointerEventData eventData)
+    /// <summary>
+    /// Вызывается, когда предмет из инвентаря перетаскивают на этот слот.
+    /// </summary>
+    public void OnDrop(PointerEventData eventData)
     {
-        var itemUI = eventData.pointerDrag?.GetComponent<InventoryItemUI>();
-        if (itemUI != null)
+        if (characterEquipment == null) return;
+
+        if (eventData.pointerDrag.TryGetComponent<InventoryItemUI>(out var itemUI))
         {
-            // --- НАЧАЛО ИЗМЕНЕНИЯ: Отладочная проверка ---
-            InventoryItem itemToEquip = itemUI.GetLinkedItem();
-            if (itemToEquip == null)
-            {
-               return;
-            }
-            // Получаем исходный инвентарь и передаем его
-            Inventory sourceInventory = itemToEquip.GetOwnerInventory();
+            var itemToEquip = itemUI.GetLinkedItem();
+            var sourceInventory = itemToEquip.GetOwnerInventory();
             characterEquipment.Equip(itemToEquip, this.slotType, sourceInventory);
-        }
-    }
-
-    // Обработка клика ПО слоту (для снятия экипировки)
-    public void OnPointerClick(PointerEventData eventData)
-    {
-        if (eventData.button == PointerEventData.InputButton.Left && eventData.clickCount >= 1)
-        {
-            // Простой клик снимает предмет
-            characterEquipment.Unequip(this.slotType);
         }
     }
 }

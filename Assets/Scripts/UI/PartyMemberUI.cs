@@ -1,25 +1,30 @@
 using UnityEngine;
-using TMPro;
 using UnityEngine.UI;
+using TMPro;
+using System.Text;
 
+/// <summary>
+/// Отображает информацию об одном члене партии (здоровье, статы, состояние).
+/// </summary>
 public class PartyMemberUI : MonoBehaviour
 {
-    [Header("UI Elements")]
-    public TextMeshProUGUI healthText;
-    public TextMeshProUGUI experienceText;
-    public TextMeshProUGUI attributesText;
-    public Image highlightImage; // Для подсветки активного
-    public Image stateIndicatorImage; // Для индикации Ready/Recovery
+    [Header("UI Элементы")]
+    [SerializeField] private TextMeshProUGUI healthText;
+    [SerializeField] private TextMeshProUGUI experienceText;
+    [SerializeField] private TextMeshProUGUI attributesText;
+    [SerializeField] private Image highlightImage;
+    [SerializeField] private Image stateIndicatorImage;
 
-    [Header("Настройки")]
-    public Color readyColor = Color.green;
-    public Color recoveryColor = Color.gray;
+    [Header("Цвета состояний")]
+    [SerializeField] private Color readyColor = Color.green;
+    [SerializeField] private Color recoveryColor = Color.gray;
 
     private CharacterStats linkedStats;
     private CharacterActionController linkedActionController;
     private Color originalHighlightColor;
+    private StringBuilder stringBuilder = new StringBuilder(128);
 
-    void Awake()
+    private void Awake()
     {
         if (highlightImage != null)
         {
@@ -27,24 +32,18 @@ public class PartyMemberUI : MonoBehaviour
         }
     }
     
-    void OnDestroy()
+    private void OnDestroy()
     {
-        if (linkedStats != null)
-        {
-            // Отписываемся от всех событий
-            linkedStats.onHealthChanged.RemoveListener(UpdateHealthUI);
-            linkedStats.onExperienceChanged -= UpdateExperienceUI;
-            linkedStats.onLevelUp -= UpdateLevelUI;
-            linkedStats.onAttributesChanged -= UpdateAttributesUI;
-        }
-        if (linkedActionController != null)
-        {
-            linkedActionController.OnStateChanged -= UpdateActionStateUI;
-        }
+        UnsubscribeFromEvents();
     }
 
+    /// <summary>
+    /// Настраивает UI-элемент для отображения данных конкретного персонажа.
+    /// </summary>
     public void Setup(CharacterStats statsToLink)
     {
+        UnsubscribeFromEvents(); // Отписываемся от старых событий на случай переиспользования
+        
         linkedStats = statsToLink;
         if (linkedStats == null)
         {
@@ -53,42 +52,57 @@ public class PartyMemberUI : MonoBehaviour
         }
         
         linkedActionController = linkedStats.GetComponent<CharacterActionController>();
+        SubscribeToEvents();
+        UpdateAllUI();
+    }
+    
+    /// <summary>
+    /// Возвращает связанный с этим UI CharacterStats.
+    /// </summary>
+    public CharacterStats GetLinkedStats() => linkedStats;
 
-        // Подписка на события
-        linkedStats.onHealthChanged.AddListener(UpdateHealthUI);
-        linkedStats.onExperienceChanged += UpdateExperienceUI;
-        linkedStats.onLevelUp += UpdateLevelUI;
-        linkedStats.onAttributesChanged += UpdateAttributesUI;
-        
+    /// <summary>
+    /// Включает или выключает подсветку активного персонажа.
+    /// </summary>
+    public void SetHighlight(bool isHighlighted)
+    {
+        if (highlightImage == null) return;
+        highlightImage.enabled = isHighlighted;
+    }
+    
+    private void SubscribeToEvents()
+    {
+        if (linkedStats != null)
+        {
+            linkedStats.onHealthChanged.AddListener(UpdateHealthUI);
+            linkedStats.onExperienceChanged += UpdateExperienceUI;
+            linkedStats.onAttributesChanged += UpdateAttributesUI;
+        }
         if (linkedActionController != null)
         {
             linkedActionController.OnStateChanged += UpdateActionStateUI;
         }
+    }
 
-        UpdateAllUI();
+    private void UnsubscribeFromEvents()
+    {
+        if (linkedStats != null)
+        {
+            linkedStats.onHealthChanged.RemoveListener(UpdateHealthUI);
+            linkedStats.onExperienceChanged -= UpdateExperienceUI;
+            linkedStats.onAttributesChanged -= UpdateAttributesUI;
+        }
+        if (linkedActionController != null)
+        {
+            linkedActionController.OnStateChanged -= UpdateActionStateUI;
+        }
     }
     
-    public CharacterStats GetLinkedStats() { return linkedStats; }
-
-    public void SetHighlight(bool isHighlighted, Color highlightColor)
-    {
-        if (highlightImage == null) return;
-        highlightImage.color = isHighlighted ? highlightColor : originalHighlightColor;
-    }
-    
-    // --- НОВЫЙ МЕТОД ---
-    private void UpdateActionStateUI(CharacterActionController.ActionState newState)
-    {
-        if (stateIndicatorImage == null) return;
-        
-        stateIndicatorImage.color = (newState == CharacterActionController.ActionState.Ready) ? readyColor : recoveryColor;
-    }
-
     private void UpdateAllUI()
     {
         if (linkedStats == null) return;
         UpdateHealthUI(linkedStats.currentHealth, linkedStats.maxHealth);
-        UpdateLevelUI(linkedStats.level);
+        UpdateExperienceUI(linkedStats.Experience, linkedStats.ExperienceToNextLevel);
         UpdateAttributesUI();
         if (linkedActionController != null)
         {
@@ -96,38 +110,35 @@ public class PartyMemberUI : MonoBehaviour
         }
     }
 
-    private void UpdateHealthUI(int currentHealth, int maxHealth)
+    private void UpdateActionStateUI(CharacterActionController.ActionState newState)
     {
-        if (healthText == null || linkedStats == null) return;
-        healthText.text = $"{linkedStats.gameObject.name}\nHP: {currentHealth} / {maxHealth}";
+        if (stateIndicatorImage == null) return;
+        stateIndicatorImage.color = (newState == CharacterActionController.ActionState.Ready) ? readyColor : recoveryColor;
+    }
+    
+    private void UpdateHealthUI(int current, int max)
+    {
+        if (healthText != null) healthText.text = $"{linkedStats.name}\nHP: {current} / {max}";
     }
 
-    private void UpdateExperienceUI(int currentExperience, int experienceToNextLevel)
+    private void UpdateExperienceUI(int current, int max)
     {
-        if (experienceText == null || linkedStats == null) return;
-        experienceText.text = $"Lvl: {linkedStats.level} (XP: {currentExperience} / {experienceToNextLevel})";
+        if (experienceText != null) experienceText.text = $"Lvl: {linkedStats.Level} (XP: {current} / {max})";
     }
-
-    private void UpdateLevelUI(int newLevel) // newLevel передается, но в основном используется для триггера
-    {
-        if (linkedStats == null) return;
-        // Обновляем текст опыта, так как он содержит информацию об уровне
-        UpdateExperienceUI(linkedStats.experience, linkedStats.experienceToNextLevel);
-        // Атрибуты также могли измениться (например, maxHealth из-за Body),
-        // или просто для консистентности при левелапе
-        UpdateAttributesUI();
-    }
-
+    
+    // Использование StringBuilder для оптимизации и предотвращения создания "мусорных" строк
     private void UpdateAttributesUI()
     {
-        if (attributesText == null || linkedStats == null) return;
+        if (attributesText == null) return;
 
-        string attrSummary = "Attributes:\n";
-        attrSummary += $"Body: {linkedStats.CurrentBody} (Base: {linkedStats.baseBody})\n";
-        attrSummary += $"Mind: {linkedStats.CurrentMind} (Base: {linkedStats.baseMind})\n";
-        attrSummary += $"Spirit: {linkedStats.CurrentSpirit} (Base: {linkedStats.baseSpirit})\n";
-        attrSummary += $"Agility: {linkedStats.CurrentAgility} (Base: {linkedStats.baseAgility})\n";
-        attrSummary += $"Prof.: {linkedStats.CurrentProficiency} (Base: {linkedStats.baseProficiency})";
-        attributesText.text = attrSummary;
+        stringBuilder.Clear();
+        stringBuilder.AppendLine("Attributes:");
+        stringBuilder.AppendLine($"Body: {linkedStats.CurrentBody} ({linkedStats.BaseBody})");
+        stringBuilder.AppendLine($"Mind: {linkedStats.CurrentMind} ({linkedStats.BaseMind})");
+        stringBuilder.AppendLine($"Spirit: {linkedStats.CurrentSpirit} ({linkedStats.BaseSpirit})");
+        stringBuilder.AppendLine($"Agility: {linkedStats.CurrentAgility} ({linkedStats.BaseAgility})");
+        stringBuilder.Append($"Prof.: {linkedStats.CurrentProficiency} ({linkedStats.BaseProficiency})");
+
+        attributesText.text = stringBuilder.ToString();
     }
 }

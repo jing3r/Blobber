@@ -2,92 +2,100 @@ using UnityEngine;
 using UnityEngine.UI;
 using System.Collections.Generic;
 
+/// <summary>
+/// Управляет визуальным представлением сетки инвентаря.
+/// Отвечает за создание ячеек и размещение UI-элементов предметов.
+/// </summary>
 public class InventoryGridUI : MonoBehaviour
 {
-    [Header("Префабы")]
+    [Header("Префабы и контейнеры")]
     [SerializeField] private GameObject gridSlotPrefab;
     [SerializeField] private GameObject inventoryItemPrefab;
-
-    [Header("Контейнеры")]
     [SerializeField] private Transform itemsContainer;
-    public Transform GetItemsContainer() => itemsContainer; // Геттер для ItemUI
 
     private Inventory linkedInventory;
     private GridLayoutGroup gridLayout;
-    private List<InventoryItemUI> itemUIs = new List<InventoryItemUI>();
+    private List<InventoryItemUI> itemUIInstances = new List<InventoryItemUI>();
     
     public Inventory GetLinkedInventory() => linkedInventory;
     public GridLayoutGroup GetGridLayoutGroup() => gridLayout;
 
+    /// <summary>
+    /// Инициализирует сетку, связывая ее с логикой инвентаря.
+    /// </summary>
     public void Initialize(Inventory inventoryToLink)
     {
         linkedInventory = inventoryToLink;
         gridLayout = GetComponent<GridLayoutGroup>();
-        linkedInventory.OnInventoryChanged += RedrawAll;
+        
+        linkedInventory.OnInventoryChanged += RedrawAllItems;
+        
         GenerateGridCells();
-        RedrawAll();
+        RedrawAllItems();
     }
-    public void OnPointerEnterGrid()
+    /// <summary>
+    /// Рассчитывает локальную позицию для UI-элемента предмета внутри контейнера itemsContainer.
+    /// </summary>
+    public Vector2 GetPositionForItem(InventoryItem item)
     {
-        InventoryUIManager.SetGridUnderMouse(this);
+        return new Vector2(
+            item.GridPositionX * (gridLayout.cellSize.x + gridLayout.spacing.x),
+            -item.GridPositionY * (gridLayout.cellSize.y + gridLayout.spacing.y)
+        );
     }
 
-    public void OnPointerExitGrid()
-    {
-        InventoryUIManager.ClearGridUnderMouse();
-    }
     private void OnDestroy()
     {
-        if (linkedInventory != null) linkedInventory.OnInventoryChanged -= RedrawAll;
+        if (linkedInventory != null)
+        {
+            linkedInventory.OnInventoryChanged -= RedrawAllItems;
+        }
     }
     
     private void GenerateGridCells()
     {
-        foreach (Transform child in transform) Destroy(child.gameObject);
-        
-        if (linkedInventory != null && gridLayout != null)
+        foreach (Transform child in transform)
         {
-            gridLayout.constraint = GridLayoutGroup.Constraint.FixedColumnCount;
-            gridLayout.constraintCount = linkedInventory.gridWidth; 
+            if(child != itemsContainer) Destroy(child.gameObject);
         }
 
-        int totalCells = linkedInventory.gridWidth * linkedInventory.gridHeight;
+        if (linkedInventory == null) return;
+        
+        gridLayout.constraint = GridLayoutGroup.Constraint.FixedColumnCount;
+        gridLayout.constraintCount = linkedInventory.GridWidth;
+
+        int totalCells = linkedInventory.GridWidth * linkedInventory.GridHeight;
         for (int i = 0; i < totalCells; i++)
         {
-            int x = i % linkedInventory.gridWidth;
-            int y = i / linkedInventory.gridWidth;
             var slotGO = Instantiate(gridSlotPrefab, transform);
-            slotGO.GetComponent<GridSlotUI>()?.SetCoordinates(x, y);
+            slotGO.name = $"Slot_{i % linkedInventory.GridWidth}_{i / linkedInventory.GridWidth}";
+            if (slotGO.TryGetComponent<GridSlotUI>(out var slotUI))
+            {
+                 slotUI.SetCoordinates(i % linkedInventory.GridWidth, i / linkedInventory.GridWidth);
+            }
         }
     }
 
-    // Переименовываем Redraw в RedrawAll для ясности
-    public void RedrawAll()
+    private void RedrawAllItems()
     {
-        foreach (var itemUI in itemUIs) Destroy(itemUI.gameObject);
-        itemUIs.Clear();
+        foreach (var itemUI in itemUIInstances)
+        {
+            Destroy(itemUI.gameObject);
+        }
+        itemUIInstances.Clear();
 
-        foreach (var item in linkedInventory.items)
+        if (linkedInventory == null) return;
+
+        foreach (var item in linkedInventory.Items)
         {
             var itemUIGO = Instantiate(inventoryItemPrefab, itemsContainer);
             var itemUIComponent = itemUIGO.GetComponent<InventoryItemUI>();
             
-            // --- ИЗМЕНЕНИЕ: Передаем ссылку на себя ---
             itemUIComponent.Initialize(item, this);
-            
-            itemUIs.Add(itemUIComponent);
+            itemUIInstances.Add(itemUIComponent);
             
             var rectTransform = itemUIGO.GetComponent<RectTransform>();
             rectTransform.anchoredPosition = GetPositionForItem(item);
         }
-    }
-
-    public Vector2 GetPositionForItem(InventoryItem item)
-    {
-        if (gridLayout == null) return Vector2.zero;
-        return new Vector2(
-            item.gridPositionX * gridLayout.cellSize.x + item.gridPositionX * gridLayout.spacing.x,
-            -item.gridPositionY * gridLayout.cellSize.y - item.gridPositionY * gridLayout.spacing.y
-        );
     }
 }

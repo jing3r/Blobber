@@ -1,112 +1,99 @@
 using UnityEngine;
-using UnityEngine.AI; // Для NavMeshHit
+using UnityEngine.AI;
 
-[RequireComponent(typeof(AIMovement))] // AIWanderBehavior будет использовать AIMovement для движения
+/// <summary>
+/// Реализует логику блуждания (Wandering) для AI.
+/// Находит случайные точки в заданном радиусе и управляет движением к ним.
+/// </summary>
+[RequireComponent(typeof(AIMovement))]
 public class AIWanderBehavior : MonoBehaviour
 {
-    [Header("Wander Parameters")]
-    public float wanderRadius = 5f;
-    public float minWanderWaitTime = 2f;
-    public float maxWanderWaitTime = 5f;
+    [Header("Параметры блуждания")]
+    [SerializeField] private float wanderRadius = 5f;
+    [SerializeField] private float minWanderWaitTime = 2f;
+    [SerializeField] private float maxWanderWaitTime = 5f;
 
     private AIMovement movement;
-    private float nextWanderTimeInternal = 0f;
-    private Vector3 currentWanderDestinationInternal;
-    private bool isWanderingToActiveDestinationInternal = false;
+    private float nextWanderTime;
+    private bool isWanderingToDestination;
 
-    // Публичные свойства для чтения из AIController/состояний
-    public float GetNextWanderTime => nextWanderTimeInternal;
-    public bool IsWanderingToActiveDestination => isWanderingToActiveDestinationInternal;
-    public Vector3 GetCurrentWanderDestination => currentWanderDestinationInternal;
-    
-    void Awake()
+    public bool IsWandering => isWanderingToDestination;
+    public bool IsReadyForNewWanderPoint => Time.time >= nextWanderTime;
+
+    private void Awake()
     {
         movement = GetComponent<AIMovement>();
-        if (movement == null)
-        {
-            Debug.LogError($"AIWanderBehavior ({gameObject.name}): AIMovement component not found! Wander behavior will not function.", this);
-            enabled = false;
-        }
     }
 
     /// <summary>
-    /// Инициализирует таймер для первого блуждания. Вызывается из AIController.Start.
+    /// Инициализирует таймер для первого блуждания. Вызывается из AIController.
     /// </summary>
     public void InitializeWanderTimer()
     {
-        nextWanderTimeInternal = Time.time + Random.Range(minWanderWaitTime, maxWanderWaitTime);
-        isWanderingToActiveDestinationInternal = false; // Начинаем не двигаясь
+        ResetWanderTimer();
+        isWanderingToDestination = false;
     }
 
     /// <summary>
-    /// Пытается найти новую точку для блуждания и установить её в AIMovement.
+    /// Пытается найти новую точку для блуждания и начать движение к ней.
     /// </summary>
-    /// <param name="ownerPosition">Позиция владельца AI (transform.position из AIController).</param>
-    /// <returns>True, если удалось найти валидную точку и начать движение к ней.</returns>
-    public bool TrySetNewWanderDestination(Vector3 ownerPosition)
+    /// <returns>True, если удалось найти валидную точку и начать движение.</returns>
+    public bool TrySetNewWanderDestination()
     {
-        Vector3 randomDirection = Random.insideUnitSphere * wanderRadius;
-        randomDirection.y = 0; // Для блуждания по плоскости (если не хотим прыгать на разные уровни)
-        randomDirection += ownerPosition;
-        NavMeshHit navHit; 
-
-        if (NavMesh.SamplePosition(randomDirection, out navHit, wanderRadius, NavMesh.AllAreas))
+        if (FindRandomNavMeshPoint(transform.position, wanderRadius, out Vector3 destination))
         {
-            currentWanderDestinationInternal = navHit.position;
-            isWanderingToActiveDestinationInternal = true;
-            movement.MoveTo(navHit.position); // Запускаем движение
+            movement.MoveTo(destination);
+            isWanderingToDestination = true;
             return true;
         }
-        else 
-        {
-            // Если не удалось найти точку в радиусе, попробуем очень близко к текущей позиции
-            Vector3 fallbackRandomDir = Random.insideUnitSphere * 2f;
-            fallbackRandomDir.y = 0;
-            fallbackRandomDir += ownerPosition;
-
-            if (NavMesh.SamplePosition(fallbackRandomDir, out navHit, 2f, NavMesh.AllAreas))
-            {
-                currentWanderDestinationInternal = navHit.position;
-                isWanderingToActiveDestinationInternal = true;
-                movement.MoveTo(navHit.position); // Запускаем движение
-                return true;
-            }
-        }
-        isWanderingToActiveDestinationInternal = false; // Точку не нашли
+        
+        // Если не удалось найти точку, сбрасываем таймер и попробуем позже
+        ResetWanderTimer();
+        isWanderingToDestination = false;
         return false;
     }
 
     /// <summary>
-    /// Обновляет логику блуждания (вызывается из AIStateWandering.UpdateState).
+    /// Вызывается из состояния AIStateWandering для проверки, достигнута ли цель.
     /// </summary>
-    /// <returns>True, если блуждание продолжается (еще не достигли цели).</returns>
-    public bool UpdateWander()
+    public void UpdateWanderState()
     {
-        if (!movement.IsOnNavMesh() || !isWanderingToActiveDestinationInternal)
+        if (movement.HasReachedDestination)
         {
-            return false; // Не можем блуждать или нет активной цели
+            StopWandering();
         }
-
-        // movement.MoveTo() уже был вызван в TrySetNewWanderDestination.
-        // Здесь мы просто проверяем, достигнута ли цель.
-        return !movement.HasReachedDestination; // Возвращаем true, если НЕ достигли цели
     }
 
     /// <summary>
-    /// Сбрасывает текущее состояние блуждания и таймер.
+    /// Прекращает текущее движение и сбрасывает таймер для следующего блуждания.
     /// </summary>
     public void StopWandering()
     {
-        isWanderingToActiveDestinationInternal = false;
-        movement.StopMovement(); // Останавливаем движение, если оно было
-        nextWanderTimeInternal = Time.time + Random.Range(minWanderWaitTime, maxWanderWaitTime); // Готовим таймер к следующему блужданию
+        isWanderingToDestination = false;
+        movement.StopMovement();
+        ResetWanderTimer();
+    }
+
+    private void ResetWanderTimer()
+    {
+        nextWanderTime = Time.time + Random.Range(minWanderWaitTime, maxWanderWaitTime);
     }
 
     /// <summary>
-    /// Только сбрасывает таймер, не сбрасывая текущее движение.
+    /// Вспомогательный метод для поиска случайной доступной точки на NavMesh.
     /// </summary>
-    public void ResetWanderTimer()
+    private bool FindRandomNavMeshPoint(Vector3 origin, float radius, out Vector3 result)
     {
-        nextWanderTimeInternal = Time.time + Random.Range(minWanderWaitTime, maxWanderWaitTime);
+        Vector3 randomDirection = Random.insideUnitSphere * radius;
+        randomDirection += origin;
+        
+        if (NavMesh.SamplePosition(randomDirection, out var navHit, radius, NavMesh.AllAreas))
+        {
+            result = navHit.position;
+            return true;
+        }
+        
+        result = origin;
+        return false;
     }
 }

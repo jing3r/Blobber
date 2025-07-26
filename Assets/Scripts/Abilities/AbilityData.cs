@@ -1,103 +1,131 @@
 using UnityEngine;
-using System.Collections.Generic; // Для List
-using System.Linq;
+using System.Collections.Generic;
 using System;
 
+#if UNITY_EDITOR
+using UnityEditor;
+using System.Linq;
+#endif
+
+/// <summary>
+/// ScriptableObject, определяющий все свойства и эффекты способности.
+/// </summary>
 [CreateAssetMenu(fileName = "New Ability", menuName = "Abilities/Ability Data")]
 public class AbilityData : ScriptableObject
 {
-    [Header("General Info")]
-    public string abilityName = "New Ability";
-    [TextArea(3, 5)]
-    public string description = "Ability description.";
-    public Sprite icon;
+    [Header("Основная информация")]
+    [SerializeField] private string abilityName = "New Ability";
+    [SerializeField] [TextArea(3, 5)] private string description = "Ability description.";
+    [SerializeField] private Sprite icon;
+    
+    [Header("Механика и цели")]
+    [SerializeField] private TargetType targetType = TargetType.Self;
+    [SerializeField] [Tooltip("Для Single_Creature/Single_Interactable. 0 для Self/AreaAroundCaster.")] private float range = 0f;
+    [SerializeField] [Tooltip("Для AreaAroundCaster.")] private float areaOfEffectRadius = 0f;
 
-    [Header("Targeting & Mechanics")]
-    public TargetType targetType = TargetType.Self;
-    [Tooltip("Для Single_Creature/Single_Interactable. 0 для Self/AreaAroundCaster.")]
-    public float range = 0f;
-    [Tooltip("Для AreaAroundCaster.")]
-    public float areaOfEffectRadius = 0f;
+    [Header("Фильтры для AoE")]
+    [SerializeField] private bool affectsSelfInAoe = false;
+    [SerializeField] private bool affectsPartyMembersInAoe = true;
+    [SerializeField] private bool affectsAlliesInAoe = false;
+    [SerializeField] private bool affectsNeutralsInAoe = false;
+    [SerializeField] private bool affectsEnemiesInAoe = true;
 
-    [Header("Area Effect Filters (для AreaAroundCaster)")]
-    public bool affectsSelfInAoe = false; // Если true, кастер сам попадет под AoE своей способности
-    public bool affectsPartyMembersInAoe = true;
-    public bool affectsAlliesInAoe = false;     // Дружественные NPC
-    public bool affectsNeutralsInAoe = false;
-    public bool affectsEnemiesInAoe = true;
+    [Header("Использование")]
+    [SerializeField] [Min(0)] private float cooldown = 1.0f;
+    [SerializeField] [Min(0)] private int maxCharges = 1;
+    [SerializeField] [Min(0)] private float castTime = 0f;
 
-    [Header("Usage")]
-    public float cooldown = 1.0f;
-    public int maxCharges = 1;
-    public float castTime = 0f; // Пока не используется, но для будущего
+    [Header("Механика состязания")]
+    [SerializeField] private bool usesContest = false;
+    [SerializeField] private AssociatedAttribute attackerAttribute1 = AssociatedAttribute.None;
+    [SerializeField] private AssociatedAttribute attackerAttribute2 = AssociatedAttribute.None;
+    [SerializeField] private AssociatedAttribute attackerAttribute3 = AssociatedAttribute.None;
+    [SerializeField] private AssociatedAttribute defenderAttribute1 = AssociatedAttribute.None;
+    [SerializeField] private AssociatedAttribute defenderAttribute2 = AssociatedAttribute.None;
+    [SerializeField] private AssociatedAttribute defenderAttribute3 = AssociatedAttribute.None;
+    
+    [Header("Эффекты")]
+    [SerializeReference] private List<AbilityEffectData> effectsToApply = new List<AbilityEffectData>();
 
-    [Header("Contest Mechanics (если способность требует состязания)")]
-    public bool usesContest = false;
-    [Tooltip("Атрибуты атакующего для состязания (15%, 10%, 5%)")]
-    public AssociatedAttribute attackerAttribute1 = AssociatedAttribute.None;
-    public AssociatedAttribute attackerAttribute2 = AssociatedAttribute.None;
-    public AssociatedAttribute attackerAttribute3 = AssociatedAttribute.None;
-    [Tooltip("Атрибуты защищающегося для состязания")]
-    public AssociatedAttribute defenderAttribute1 = AssociatedAttribute.None;
-    public AssociatedAttribute defenderAttribute2 = AssociatedAttribute.None;
-    public AssociatedAttribute defenderAttribute3 = AssociatedAttribute.None;
-
-    [Header("Effects")]
-    [SerializeReference] // Позволяет полиморфизм для списка ниже в инспекторе
-    public List<AbilityEffectData> effectsToApply = new List<AbilityEffectData>();
-
-    [Header("Visuals & Sound (Optional)")]
-    public AudioClip castSound;
-    public GameObject startVFXPrefab;
-    public GameObject targetVFXPrefab;
-    public GameObject areaVFXPrefab;
+    [Header("Визуальные эффекты и звук")]
+    [SerializeField] private AudioClip castSound;
+    [SerializeField] private GameObject startVFXPrefab;
+    [SerializeField] private GameObject targetVFXPrefab;
+    [SerializeField] private GameObject areaVFXPrefab;
+    
+    // Публичные свойства для доступа только на чтение
+    public string AbilityName => abilityName;
+    public string Description => description;
+    public Sprite Icon => icon;
+    public TargetType TargetType => targetType;
+    public float Range => range;
+    public float AreaOfEffectRadius => areaOfEffectRadius;
+    public bool AffectsSelfInAoe => affectsSelfInAoe;
+    public bool AffectsPartyMembersInAoe => affectsPartyMembersInAoe;
+    public bool AffectsAlliesInAoe => affectsAlliesInAoe;
+    public bool AffectsNeutralsInAoe => affectsNeutralsInAoe;
+    public bool AffectsEnemiesInAoe => affectsEnemiesInAoe;
+    public float Cooldown => cooldown;
+    public int MaxCharges => maxCharges;
+    public float CastTime => castTime;
+    public bool UsesContest => usesContest;
+    public AssociatedAttribute AttackerAttribute1 => attackerAttribute1;
+    public AssociatedAttribute AttackerAttribute2 => attackerAttribute2;
+    public AssociatedAttribute AttackerAttribute3 => attackerAttribute3;
+    public AssociatedAttribute DefenderAttribute1 => defenderAttribute1;
+    public AssociatedAttribute DefenderAttribute2 => defenderAttribute2;
+    public AssociatedAttribute DefenderAttribute3 => defenderAttribute3;
+    public IReadOnlyList<AbilityEffectData> EffectsToApply => effectsToApply.AsReadOnly();
+    public AudioClip CastSound => castSound;
+    public GameObject StartVFXPrefab => startVFXPrefab;
+    public GameObject TargetVFXPrefab => targetVFXPrefab;
+    public GameObject AreaVFXPrefab => areaVFXPrefab;
+    
 
 #if UNITY_EDITOR
-    // Небольшой редакторский скрипт для удобного добавления эффектов в инспекторе
-    [UnityEditor.CustomEditor(typeof(AbilityData))]
-    public class AbilityDataEditor : UnityEditor.Editor
+    /// <summary>
+    /// Пользовательский редактор для удобного добавления полиморфных эффектов в инспекторе.
+    /// </summary>
+    [CustomEditor(typeof(AbilityData))]
+    public class AbilityDataEditor : Editor
     {
-        private Type effectTypeToAdd = typeof(HealEffectData); // Тип по умолчанию для добавления
+        private Type effectTypeToAdd;
+        private List<Type> effectTypes;
+        private string[] effectTypeNames;
 
-        public override void OnInspectorGUI()
+        private void OnEnable()
         {
-            base.OnInspectorGUI(); // Отрисовываем стандартный инспектор
-
-            AbilityData abilityData = (AbilityData)target;
-
-            GUILayout.Space(10);
-            GUILayout.Label("Add New Effect", UnityEditor.EditorStyles.boldLabel);
-
-            // Выпадающий список для выбора типа эффекта
-            // Собираем все типы, наследующие AbilityEffectData
-            var effectTypes = System.AppDomain.CurrentDomain.GetAssemblies()
+            // Кэшируем типы при включении, чтобы не искать их каждый кадр
+            effectTypes = AppDomain.CurrentDomain.GetAssemblies()
                 .SelectMany(assembly => assembly.GetTypes())
                 .Where(type => type.IsSubclassOf(typeof(AbilityEffectData)) && !type.IsAbstract)
                 .ToList();
             
-            string[] typeNames = effectTypes.Select(t => t.Name).ToArray();
+            effectTypeNames = effectTypes.Select(t => t.Name).ToArray();
+            effectTypeToAdd = effectTypes.FirstOrDefault();
+        }
+
+        public override void OnInspectorGUI()
+        {
+            base.OnInspectorGUI();
+            if (effectTypeToAdd == null) return;
+
+            EditorGUILayout.Space();
+            EditorGUILayout.LabelField("Add New Effect", EditorStyles.boldLabel);
+            
             int currentTypeIndex = effectTypes.IndexOf(effectTypeToAdd);
-            if (currentTypeIndex < 0) currentTypeIndex = 0;
-
-
-            if (effectTypes.Count > 0)
+            int newSelectedTypeIndex = EditorGUILayout.Popup("Effect Type", currentTypeIndex, effectTypeNames);
+            if (newSelectedTypeIndex != currentTypeIndex)
             {
-                 int newSelectedTypeIndex = UnityEditor.EditorGUILayout.Popup("Effect Type", currentTypeIndex, typeNames);
-                if (newSelectedTypeIndex != currentTypeIndex)
-                {
-                    effectTypeToAdd = effectTypes[newSelectedTypeIndex];
-                }
-
-                if (GUILayout.Button("Add Effect"))
-                {
-                    AbilityEffectData newEffect = (AbilityEffectData)Activator.CreateInstance(effectTypeToAdd);
-                    abilityData.effectsToApply.Add(newEffect);
-                    UnityEditor.EditorUtility.SetDirty(abilityData); // Помечаем SO как измененный
-                }
+                effectTypeToAdd = effectTypes[newSelectedTypeIndex];
             }
-            else
+
+            if (GUILayout.Button("Add Effect"))
             {
-                GUILayout.Label("No effect types found.");
+                var abilityData = (AbilityData)target;
+                var newEffect = (AbilityEffectData)Activator.CreateInstance(effectTypeToAdd);
+                abilityData.EffectsToApply.ToList().Add(newEffect);
+                EditorUtility.SetDirty(abilityData);
             }
         }
     }

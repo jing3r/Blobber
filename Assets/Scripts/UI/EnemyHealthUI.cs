@@ -1,31 +1,24 @@
 using UnityEngine;
-using UnityEngine.UI; // Для Slider
+using UnityEngine.UI;
 
+/// <summary>
+/// Управляет отображением полосы здоровья для врага (или любого NPC).
+/// </summary>
 public class EnemyHealthUI : MonoBehaviour
 {
-    [Tooltip("Слайдер для отображения здоровья.")]
-    public Slider healthSlider;
+    [SerializeField] private Slider healthSlider;
+    [SerializeField] private CharacterStats enemyStats;
 
-    [Tooltip("Ссылка на CharacterStats врага (обычно на родительском объекте). Будет найдена автоматически, если не назначена.")]
-    public CharacterStats enemyStats;
-
-    void Awake()
+    private void Awake()
     {
+        // Автоматический поиск CharacterStats в родительском объекте, если не указан вручную
         if (enemyStats == null)
         {
             enemyStats = GetComponentInParent<CharacterStats>();
         }
 
-        if (enemyStats == null)
+        if (!ValidatePrerequisites())
         {
-            Debug.LogError($"EnemyHealthUI ({gameObject.name}): CharacterStats not found! UI will be disabled.", this);
-            gameObject.SetActive(false);
-            return;
-        }
-
-        if (healthSlider == null)
-        {
-            Debug.LogError($"EnemyHealthUI ({gameObject.name}): Health Slider not assigned! UI will be disabled.", this);
             gameObject.SetActive(false);
             return;
         }
@@ -33,32 +26,45 @@ public class EnemyHealthUI : MonoBehaviour
         enemyStats.onHealthChanged.AddListener(UpdateHealthDisplay);
         enemyStats.onDied += HandleDeath;
 
-        UpdateHealthDisplay(enemyStats.currentHealth, enemyStats.maxHealth); // Инициализация
+        UpdateHealthDisplay(enemyStats.currentHealth, enemyStats.maxHealth);
     }
 
-    private void UpdateHealthDisplay(int currentHealth, int maxHealth)
-    {
-        if (healthSlider == null) return; // Дополнительная проверка
-        if (maxHealth <= 0) // Избегаем деления на ноль и некорректных значений
-        {
-            healthSlider.value = 0;
-            return;
-        }
-
-        healthSlider.value = (float)currentHealth / maxHealth;
-    }
-
-    private void HandleDeath()
-    {
-        gameObject.SetActive(false); // Скрываем весь UI элемент при смерти
-    }
-
-    void OnDestroy()
+    private void OnDestroy()
     {
         if (enemyStats != null)
         {
             enemyStats.onHealthChanged.RemoveListener(UpdateHealthDisplay);
             enemyStats.onDied -= HandleDeath;
         }
+    }
+
+    private void UpdateHealthDisplay(int currentHealth, int maxHealth)
+    {
+        if (maxHealth <= 0)
+        {
+            healthSlider.value = 0;
+            return;
+        }
+        healthSlider.value = (float)currentHealth / maxHealth;
+    }
+
+    private void HandleDeath()
+    {
+        gameObject.SetActive(false);
+    }
+    
+    private bool ValidatePrerequisites()
+    {
+        if (healthSlider == null)
+        {
+            Debug.LogError($"[{nameof(EnemyHealthUI)}] Health Slider not assigned on '{gameObject.name}'.", this);
+            return false;
+        }
+        if (enemyStats == null)
+        {
+            Debug.LogError($"[{nameof(EnemyHealthUI)}] CharacterStats not found on '{gameObject.name}' or its parents.", this);
+            return false;
+        }
+        return true;
     }
 }

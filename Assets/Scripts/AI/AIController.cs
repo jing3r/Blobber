@@ -1,92 +1,100 @@
 using UnityEngine;
 using System.Collections.Generic;
 using System.Linq;
+using System;
 
-// Добавляем ISaveable
-[RequireComponent(typeof(CharacterStats))]
-[RequireComponent(typeof(AIMovement))]
-[RequireComponent(typeof(AICombat))]
-[RequireComponent(typeof(AIPerception))]
-[RequireComponent(typeof(AIWanderBehavior))]
+/// <summary>
+/// Центральный "мозг" AI, управляющий сменой состояний (State Machine) и поведением.
+/// Является точкой сборки для всех остальных AI-компонентов.
+/// </summary>
+[RequireComponent(typeof(CharacterStats), typeof(AIMovement), typeof(AICombat))]
+[RequireComponent(typeof(AIPerception), typeof(AIWanderBehavior))]
 public class AIController : MonoBehaviour, ISaveable
 {
     public enum AIState { Idle, Wandering, Chasing, Attacking, Fleeing, Dead }
-    [SerializeField] private AIState currentStateDebugView;
-    private IAIState currentStateObject;
-    private Dictionary<AIState, IAIState> availableStates;
-
     public enum Alignment { Friendly, Neutral, Hostile }
-    [Header("AI Behavior")]
-    public Alignment currentAlignment = Alignment.Hostile;
-    public bool canBecomeHostileOnAttack = true;
-    public bool canFlee = false;
-    public float fleeHealthThreshold = 0.3f;
-    public bool fleesOnSightOfPlayer = false;
-    public bool canWander = true;
+    
+    [Header("Поведение AI")]
+    [SerializeField] private Alignment currentAlignment = Alignment.Hostile;
+    [SerializeField] private bool canBecomeHostileOnAttack = true;
+    [SerializeField] private bool canFlee = false;
+    [SerializeField] [Range(0f, 1f)] private float fleeHealthThreshold = 0.3f;
+    [SerializeField] private bool fleesOnSightOfPlayer = false;
+    [SerializeField] private bool canWander = true;
 
-    [Header("State Transition Parameters (Distances)")]
-    public float attackStateSwitchRadius = 2f; 
-    public float fleeDistance = 20f;
+    [Header("Параметры состояний")]
+    [SerializeField] private float attackStateSwitchRadius = 2f; 
+    [SerializeField] private float fleeDistance = 20f;
 
-    [Header("Rewards")]
-    public List<InventoryItem> potentialLoot = new List<InventoryItem>();
-    public int experienceReward = 25;
+    [Header("Награды")]
+    [SerializeField] private List<InventoryItem> potentialLoot = new List<InventoryItem>();
+    [SerializeField] private int experienceReward = 25;
+    
+    [Header("Отладка")]
+    [SerializeField] private AIState currentStateDebugView;
 
     public AIMovement Movement { get; private set; }
     public AICombat Combat { get; private set; }
     public AIPerception Perception { get; private set; }
     public AIWanderBehavior WanderBehavior { get; private set; }
     public CharacterStats MyStats { get; private set; }
-    public Transform PlayerPartyTransformRef { get; private set; }
-    public PartyManager PartyManagerRef { get; private set; }
-    public FeedbackManager FeedbackManagerRef { get; private set; }
     
-    private Transform currentThreatInternal;
-    public Transform CurrentThreat => currentThreatInternal;
-    private float _stateLockTimer = 0f;
+    public bool FleesOnSightOfPlayer => fleesOnSightOfPlayer;
+    public bool CanWander => canWander;
+    public float FleeDistance => fleeDistance;
+    public float AttackStateSwitchRadius => attackStateSwitchRadius;
+    public Alignment CurrentAlignment => currentAlignment;
 
-    public void LockStateForDuration(float duration)
+    public PartyManager PartyManagerRef { get; private set; }
+    
+    // State Machine
+    private IAIState currentStateObject;
+    private Dictionary<AIState, IAIState> availableStates;
+    
+    public Transform CurrentThreat { get; private set; }
+    private float stateLockTimer;
+    
+    #region Unity Lifecycle & Initialization
+    private void Awake()
     {
-        _stateLockTimer = Time.time + duration;
-    }
-    void Awake()
-    {
+
         Movement = GetComponent<AIMovement>();
         Combat = GetComponent<AICombat>(); 
         Perception = GetComponent<AIPerception>();
         WanderBehavior = GetComponent<AIWanderBehavior>();
         MyStats = GetComponent<CharacterStats>();
 
-        if (MyStats == null || Movement == null || Combat == null || Perception == null || WanderBehavior == null)
-        {
-            enabled = false; 
-            return;
-        }
-
-        MyStats.onDied += HandleDeath;
-        MyStats.onHealthChanged.AddListener(CheckFleeConditionOnHealthChange);
-
         InitializeStates();
     }
 
-    void Start()
+    private void Start()
     {
-        GameObject playerObject = GameObject.FindGameObjectWithTag("Player");
-        if (playerObject != null)
-        {
-            PlayerPartyTransformRef = playerObject.transform;
-            PartyManagerRef = playerObject.GetComponent<PartyManager>();
-            if (FeedbackManagerRef == null) 
-            {
-                FeedbackManagerRef = FindObjectOfType<FeedbackManager>();
-            }
-        }
+        PartyManagerRef = FindObjectOfType<PartyManager>();
         
-        if (canWander) WanderBehavior.InitializeWanderTimer(); 
-        if (Combat != null) Combat.effectiveAttackRange = attackStateSwitchRadius;
-        Movement.StoppingDistance = attackStateSwitchRadius * 0.9f;
+        if (CanWander) WanderBehavior.InitializeWanderTimer();
+        Movement.StoppingDistance = AttackStateSwitchRadius * 0.9f;
+        
+        MyStats.onDied += HandleDeath;
+        MyStats.onHealthChanged.AddListener(CheckFleeConditionOnHealthChange);
         
         ChangeState(AIState.Idle);
+    }
+
+    private void OnDestroy() 
+    {
+        if (MyStats != null)
+        {
+            MyStats.onDied -= HandleDeath;
+            MyStats.onHealthChanged.RemoveListener(CheckFleeConditionOnHealthChange);
+        }
+    }
+
+    private void Update()
+    {
+        if (currentStateObject == null || MyStats.IsDead) return;
+        
+        currentStateObject.UpdateState(this);
+        currentStateDebugView = currentStateObject.GetStateType();
     }
 
     private void InitializeStates()
@@ -100,289 +108,268 @@ public class AIController : MonoBehaviour, ISaveable
             { AIState.Fleeing, new AIStateFleeing() }
         };
     }
+    #endregion
 
-    void Update()
-    {
-        if (currentStateObject == null || MyStats == null || MyStats.IsDead)
-        {
-            if (currentStateObject == null && (MyStats != null && !MyStats.IsDead))
-            {
-                ChangeState(AIState.Idle); 
-            }
-            return; 
-        }
-        currentStateObject.UpdateState(this);
-        if (currentStateObject != null) currentStateDebugView = currentStateObject.GetStateType();
-    }
-
+    #region State Machine Management
+    /// <summary>
+    /// Переключает AI в новое состояние.
+    /// </summary>
     public void ChangeState(AIState newStateKey)
     {
-        if (currentStateObject?.GetStateType() == AIState.Fleeing && newStateKey != AIState.Dead && Time.time < _stateLockTimer) return;
-        if (currentStateObject != null && currentStateObject.GetStateType() == AIState.Dead && newStateKey != AIState.Dead) return;
+        // Защита от смены состояний в определенных условиях
+        if (MyStats.IsDead && newStateKey != AIState.Dead) return;
+        if (currentStateObject?.GetStateType() == AIState.Fleeing && Time.time < stateLockTimer) return;
 
         if (availableStates.TryGetValue(newStateKey, out IAIState newStateObject))
         {
             currentStateObject?.ExitState(this);
             currentStateObject = newStateObject;
             currentStateObject.EnterState(this);
-            currentStateDebugView = newStateKey;
         }
     }
-    
-    public void ClearCurrentThreat() { currentThreatInternal = null; }
-    public void SetCurrentThreat(Transform threat) { currentThreatInternal = threat; }
 
-    private void CheckFleeConditionOnHealthChange(int currentHp, int maxHp)
+    /// <summary>
+    /// Блокирует смену состояния на определенное время. Используется для бегства.
+    /// </summary>
+    public void LockStateForDuration(float duration)
     {
-        if (!canFlee || currentStateObject?.GetStateType() == AIState.Dead || currentStateObject?.GetStateType() == AIState.Fleeing || MyStats == null) return;
-        if ((float)currentHp / MyStats.maxHealth <= fleeHealthThreshold)
-        {
-            if (CurrentThreat != null) { ForceFlee(CurrentThreat); }
-            else if (Perception.PlayerTarget != null && Perception.IsTargetInRadius(Perception.PlayerTarget, Perception.engageRadius)) { ForceFlee(Perception.PlayerTarget); }
-        }
+        stateLockTimer = Time.time + duration;
     }
+    #endregion
+
+    #region Threat Management & Reactions
+    /// <summary>
+    /// Устанавливает новую угрозу для AI.
+    /// </summary>
+    public void SetCurrentThreat(Transform threat) => CurrentThreat = threat;
     
+    /// <summary>
+    /// Сбрасывает текущую угрозу.
+    /// </summary>
+    public void ClearCurrentThreat() => CurrentThreat = null;
+
+    /// <summary>
+    /// Реакция на получение урона.
+    /// </summary>
+    public void ReactToDamage(Transform attacker)
+    {
+        // Если уже убегаем или уже атакуем эту цель, ничего не делаем
+        if (currentStateObject?.GetStateType() == AIState.Fleeing) return;
+        if (CurrentThreat == attacker && (currentStateObject?.GetStateType() == AIState.Chasing || currentStateObject?.GetStateType() == AIState.Attacking)) return;
+        
+        BecomeHostileTowards(attacker, true); 
+    }
+    /// <summary>
+    /// Изменяет текущее отношение AI к игровым персонажам.
+    /// </summary>
+    public void SetAlignment(Alignment newAlignment)
+    {
+        currentAlignment = newAlignment;
+    }
+    /// <summary>
+    /// Заставляет AI стать враждебным к цели.
+    /// </summary>
     public void BecomeHostileTowards(Transform threatSource, bool forceAggro = false)
     {
-        if (currentAlignment == Alignment.Hostile && CurrentThreat == threatSource && !forceAggro)
-        {
-            if (currentStateObject?.GetStateType() == AIState.Idle || currentStateObject?.GetStateType() == AIState.Wandering || currentStateObject?.GetStateType() == AIState.Fleeing) 
-            {
-                Movement.FaceTarget(threatSource); 
-                ChangeState(AIState.Chasing);
-            }
-            return;
-        }
+        bool canTurnHostile = currentAlignment != Alignment.Friendly || canBecomeHostileOnAttack || forceAggro;
+        if (!canTurnHostile) return;
         
-        bool canActuallyBecomeHostile = currentAlignment == Alignment.Hostile || (currentAlignment == Alignment.Neutral) || (currentAlignment == Alignment.Friendly && canBecomeHostileOnAttack) || forceAggro;
-        
-        if (canActuallyBecomeHostile)
-        {
-            currentAlignment = Alignment.Hostile;
-            SetCurrentThreat(threatSource); 
-            Movement.FaceTarget(threatSource); 
-            ChangeState(AIState.Chasing);
-        }
+        currentAlignment = Alignment.Hostile;
+        SetCurrentThreat(threatSource); 
+        ChangeState(AIState.Chasing);
     }
 
+    /// <summary>
+    /// Заставляет AI убегать от источника угрозы.
+    /// </summary>
     public void ForceFlee(Transform threatToFleeFrom)
     {
-        if (currentStateObject?.GetStateType() == AIState.Dead) return;
-        if (!canFlee) {
-            if (currentAlignment != Alignment.Hostile && PlayerPartyTransformRef != null && threatToFleeFrom == PlayerPartyTransformRef) { BecomeHostileTowards(threatToFleeFrom, true); }
+        if (MyStats.IsDead) return;
+        
+        if (!canFlee) 
+        {
+            // Если не умеет убегать, становится враждебным в ответ
+            BecomeHostileTowards(threatToFleeFrom, true);
             return;
         }
+
         SetCurrentThreat(threatToFleeFrom); 
         ChangeState(AIState.Fleeing);
         LockStateForDuration(3.0f); 
     }
 
-    public void ReactToDamage(Transform attacker)
+    private void CheckFleeConditionOnHealthChange(int currentHp, int maxHp)
     {
-        if (currentStateObject?.GetStateType() == AIState.Fleeing) return;
-        if (currentAlignment == Alignment.Hostile && CurrentThreat == attacker && (currentStateObject?.GetStateType() == AIState.Chasing || currentStateObject?.GetStateType() == AIState.Attacking))
+        if (!canFlee || MyStats.IsDead || currentStateObject?.GetStateType() == AIState.Fleeing) return;
+        
+        if ((float)currentHp / maxHp <= fleeHealthThreshold)
         {
-            Movement.FaceTarget(attacker); 
-            return;
+            // Если есть текущая угроза - убегаем от нее. Если нет - от игрока, если он виден.
+            var threat = CurrentThreat ?? Perception.PrimaryHostileThreat;
+            if (threat != null)
+            {
+                ForceFlee(threat);
+            }
         }
-        BecomeHostileTowards(attacker, true); 
     }
+    #endregion
 
+    #region Death & Loot
     private void HandleDeath() 
     {
-        // Переходим в состояние "мертв"
-        currentStateObject?.ExitState(this);
-        currentStateObject = null; 
-        currentStateDebugView = AIState.Dead;
+        ChangeState(AIState.Dead); // Формально переключаем состояние для логгирования
+        currentStateObject = null;
+        this.enabled = false;
 
-        // Выключаем компоненты, отвечающие за движение и поведение
         Movement.ResetAndStopAgent(); 
         Movement.DisableAgent();
-        this.enabled = false; // Отключаем сам AIController, чтобы Update не работал
         
-        // Включаем "трупное" поведение
         SetupLootableCorpse();
-
-        // Оповещаем о смерти (для квестов, UI и т.д.)
         GrantExperienceToParty();
-        
-        // ВАЖНО: Мы больше НЕ УНИЧТОЖАЕМ gameObject!
     }
 
     private void GrantExperienceToParty() 
     {
         if (PartyManagerRef == null || experienceReward <= 0) return;
-        var livingMembers = PartyManagerRef.partyMembers.Where(member => member != null && !member.IsDead).ToList();
+        
+        var livingMembers = PartyManagerRef.PartyMembers.Where(member => member != null && !member.IsDead).ToList();
         if (livingMembers.Count > 0)
         {
             int xpPerMember = Mathf.Max(1, experienceReward / livingMembers.Count);
-            foreach (CharacterStats member in livingMembers) { member.GainExperience(xpPerMember); }
+            foreach (var member in livingMembers)
+            {
+                member.GainExperience(xpPerMember);
+            }
         }
     }
 
-private void SetupLootableCorpse() 
-{
-    LootableCorpse lootable = gameObject.GetComponent<LootableCorpse>();
-    if (lootable == null) lootable = gameObject.AddComponent<LootableCorpse>();
-    lootable.enabled = true;
-
-    Inventory corpseInventory = gameObject.GetComponent<Inventory>();
-    if (corpseInventory == null) corpseInventory = gameObject.AddComponent<Inventory>();
-    
-    // Работаем с инвентарем трупа, а не с самим LootableCorpse
-    if (corpseInventory.items.Count == 0)
+    private void SetupLootableCorpse()
     {
-        if (potentialLoot != null)
+        // Гарантируем наличие необходимых компонентов для трупа
+        var lootable = GetComponent<LootableCorpse>() ?? gameObject.AddComponent<LootableCorpse>();
+        var corpseInventory = GetComponent<Inventory>() ?? gameObject.AddComponent<Inventory>();
+        lootable.enabled = true;
+
+        if (corpseInventory.Items.Count == 0 && potentialLoot.Count > 0)
         {
             foreach (var lootEntry in potentialLoot)
             {
-                if (lootEntry.itemData != null && lootEntry.quantity > 0)
+                if (lootEntry?.ItemData != null && lootEntry.Quantity > 0)
                 {
-                    corpseInventory.AddItem(lootEntry.itemData, lootEntry.quantity);
+                    corpseInventory.AddItem(lootEntry.ItemData, lootEntry.Quantity);
                 }
             }
         }
     }
-}
-
-    void OnDestroy() 
-    {
-        if (MyStats != null)
-        {
-            MyStats.onDied -= HandleDeath;
-            MyStats.onHealthChanged.RemoveListener(CheckFleeConditionOnHealthChange);
-        }
-    }
+    #endregion
     
-    void OnDrawGizmosSelected()
-    {
-        if (Perception != null)
-        {
-            Gizmos.color = Color.yellow; Gizmos.DrawWireSphere(transform.position, Perception.engageRadius);
-            if (fleesOnSightOfPlayer) { Gizmos.color = Color.cyan; Gizmos.DrawWireSphere(transform.position, Perception.fleeOnSightRadius); }
-            Gizmos.color = Color.gray; Gizmos.DrawWireSphere(transform.position, Perception.disengageRadius);
-        }
-        Gizmos.color = Color.red; Gizmos.DrawWireSphere(transform.position, attackStateSwitchRadius);
-    }
-
-    #region SaveSystem
-
-    [System.Serializable]
+    #region Save System Implementation
+    [Serializable]
     private struct EnemySaveData
     {
-        // Состояние "живого" NPC
-        public int currentHealth;
-        public AIController.Alignment currentAlignment;
-        public float positionX, positionY, positionZ;
-        public float rotationY;
-        
-        // Состояние "мертвого" NPC
-        public bool isDead;
-        public List<InventorySlotSaveData> corpseLoot; // Сохраняем оставшийся лут
+        public int CurrentHealth;
+        public Alignment CurrentAlignment;
+        public float PositionX, PositionY, PositionZ;
+        public float RotationY;
+        public bool IsDead;
+        public List<InventorySlotSaveData> CorpseLoot;
     }
 
-public object CaptureState()
-{
-    var data = new EnemySaveData
+    public object CaptureState()
     {
-        currentHealth = MyStats.currentHealth,
-        currentAlignment = this.currentAlignment,
-        positionX = transform.position.x,
-        positionY = transform.position.y,
-        positionZ = transform.position.z,
-        rotationY = transform.eulerAngles.y,
-        isDead = MyStats.IsDead,
-        corpseLoot = new List<InventorySlotSaveData>()
-    };
-
-    // Если NPC мертв, сохраняем его инвентарь
-    if (data.isDead)
-    {
-        // --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
-        // Получаем компонент Inventory, а не LootableCorpse
-        var corpseInventory = GetComponent<Inventory>();
-        if (corpseInventory != null)
+        var data = new EnemySaveData
         {
-            // Итерируемся по списку items из инвентаря
-            foreach (var item in corpseInventory.items)
+            CurrentHealth = MyStats.currentHealth,
+            CurrentAlignment = this.currentAlignment,
+            PositionX = transform.position.x,
+            PositionY = transform.position.y,
+            PositionZ = transform.position.z,
+            RotationY = transform.eulerAngles.y,
+            IsDead = MyStats.IsDead,
+        };
+
+        if (data.IsDead)
+        {
+            var corpseInventory = GetComponent<Inventory>();
+            if (corpseInventory != null)
             {
-                if (item?.itemData == null) continue;
-                data.corpseLoot.Add(new InventorySlotSaveData 
-                { 
-                    itemDataName = item.itemData.name, 
-                    quantity = item.quantity 
-                });
+                data.CorpseLoot = corpseInventory.Items
+                    .Where(item => item?.ItemData != null)
+                    .Select(item => new InventorySlotSaveData 
+                    { 
+                        ItemDataName = item.ItemData.name, 
+                        Quantity = item.Quantity 
+                    }).ToList();
             }
         }
+        return data;
     }
-
-    return data;
-}
 
     public void RestoreState(object state)
     {
-        if (state is EnemySaveData saveData)
+        if (state is EnemySaveData data)
         {
-            MyStats.currentHealth = saveData.currentHealth;
-            this.currentAlignment = saveData.currentAlignment;
-            transform.position = new Vector3(saveData.positionX, saveData.positionY, saveData.positionZ);
-            transform.eulerAngles = new Vector3(0, saveData.rotationY, 0);
+            MyStats.currentHealth = data.CurrentHealth;
+            this.currentAlignment = data.CurrentAlignment;
+            transform.position = new Vector3(data.PositionX, data.PositionY, data.PositionZ);
+            transform.eulerAngles = new Vector3(0, data.RotationY, 0);
 
-        MyStats.RefreshStatsAfterLoad();
+            MyStats.RefreshStatsAfterLoad();
 
-        if (saveData.isDead)
-        {
-            if (!MyStats.IsDead)
+            if (data.IsDead)
             {
-                MyStats.TakeDamage(MyStats.maxHealth + 999); 
-            }
-            
-            // Получаем инвентарь и LootableCorpse
-            var lootableCorpse = GetComponent<LootableCorpse>();
-            if (lootableCorpse == null) lootableCorpse = gameObject.AddComponent<LootableCorpse>();
-            
-            var corpseInventory = GetComponent<Inventory>();
-            if (corpseInventory == null) corpseInventory = gameObject.AddComponent<Inventory>();
-
-            // Восстанавливаем инвентарь
-            corpseInventory.items.Clear();
-            foreach(var savedItem in saveData.corpseLoot)
-            {
-                ItemData itemData = Resources.Load<ItemData>($"Items/{savedItem.itemDataName}");
-                if (itemData != null)
-                {
-                    // Создаем InventoryItem напрямую, т.к. AddItem будет искать место, а нам нужно восстановить как было
-                    corpseInventory.items.Add(new InventoryItem(itemData, savedItem.quantity, -1, -1, corpseInventory));
-                }
-            }
-            // Вызываем событие, чтобы UI обновился, если он открыт
-            corpseInventory.SendMessage("OnInventoryChanged", SendMessageOptions.DontRequireReceiver);
-
-            // Обновляем подсказку в зависимости от пустоты инвентаря
-            if (corpseInventory.items.Count == 0)
-            {
-                lootableCorpse.interactionPrompt = "Searched";
+                RestoreDeadState();
+                RestoreCorpseInventory(data.CorpseLoot);
             }
             else
             {
-                lootableCorpse.interactionPrompt = $"Search {gameObject.name}";
+                RestoreAliveState();
             }
         }
-        else
+    }
+
+    private void RestoreDeadState()
+    {
+        if (!MyStats.IsDead)
         {
-                this.enabled = true;
-                Movement.EnableAgent();
-                GetComponent<Collider>().enabled = true;
+            // Убиваем персонажа, если он почему-то был жив в сцене
+            MyStats.TakeDamage(MyStats.maxHealth + 999);
+        }
+        var lootableCorpse = GetComponent<LootableCorpse>() ?? gameObject.AddComponent<LootableCorpse>();
+        lootableCorpse.enabled = true;
+    }
 
-                var lootableCorpse = GetComponent<LootableCorpse>();
-                if (lootableCorpse != null) lootableCorpse.enabled = false;
+    private void RestoreAliveState()
+    {
+        this.enabled = true;
+        Movement.EnableAgent();
+        GetComponent<Collider>().enabled = true;
+        
+        var lootableCorpse = GetComponent<LootableCorpse>();
+        if (lootableCorpse != null) lootableCorpse.enabled = false;
+        
+        var healthUI = GetComponentInChildren<EnemyHealthUI>(true);
+        if (healthUI != null) healthUI.gameObject.SetActive(true);
 
-                var healthUI = GetComponentInChildren<EnemyHealthUI>(true);
-                if (healthUI != null) healthUI.gameObject.SetActive(true);
+        ChangeState(AIState.Idle);
+    }
+    
+    private void RestoreCorpseInventory(List<InventorySlotSaveData> lootData)
+    {
+        var corpseInventory = GetComponent<Inventory>() ?? gameObject.AddComponent<Inventory>();
+        corpseInventory.Clear();
 
-                ChangeState(AIState.Idle);
+        if (lootData == null) return;
+        
+        foreach(var savedItem in lootData)
+        {
+            ItemData itemData = Resources.Load<ItemData>($"Items/{savedItem.ItemDataName}");
+            if (itemData != null)
+            {
+                corpseInventory.AddItem(itemData, savedItem.Quantity);
             }
         }
+        corpseInventory.TriggerInventoryChanged();
     }
     #endregion
 }

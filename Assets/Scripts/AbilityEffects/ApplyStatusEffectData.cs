@@ -6,16 +6,16 @@ using System.Linq;
 [Serializable]
 public class ApplyStatusEffectData : AbilityEffectData
 {
-    public StatusEffectData statusEffectToApply;
-    public bool applyToAllInAreaIfAoE = true;
-
+    [SerializeField] private StatusEffectData statusEffectToApply;
+    [SerializeField] private bool applyToAllInAreaIfAoE = true;
+    public StatusEffectData StatusEffectToApply => statusEffectToApply;
     public override string ApplyEffect(CharacterStats casterStats, AbilityData sourceAbility, CharacterStats primaryTargetStats, Transform primaryTargetTransform, Vector3 castPoint, ref List<CharacterStats> allTargetsInArea)
     {
-        if (statusEffectToApply == null) return null;
+        if (StatusEffectToApply == null) return null;
 
         string feedback = null;
 
-        if (applyToAllInAreaIfAoE && sourceAbility.targetType == TargetType.AreaAroundCaster)
+        if (applyToAllInAreaIfAoE && sourceAbility.TargetType == TargetType.AreaAroundCaster)
         {
             if (allTargetsInArea == null) return null;
 
@@ -25,30 +25,30 @@ public class ApplyStatusEffectData : AbilityEffectData
             {
                 if (target == null) continue;
                 targetsHit++;
-                if (!sourceAbility.usesContest || CombatHelper.ResolveAttributeContest(casterStats, target, sourceAbility))
+                if (!sourceAbility.UsesContest || CombatHelper.ResolveAttributeContest(casterStats, target, sourceAbility))
                 {
-                    target.GetComponent<CharacterStatusEffects>()?.ApplyStatus(statusEffectToApply, casterStats);
+                    target.GetComponent<CharacterStatusEffects>()?.ApplyStatus(StatusEffectToApply, casterStats);
                     targetsAffected++;
                 }
             }
             if (targetsHit > 0)
             {
                 if (targetsAffected > 0)
-                    feedback = $"{targetsAffected} of {targetsHit} targets are now {statusEffectToApply.statusName}.";
+                    feedback = $"{targetsAffected} of {targetsHit} targets are now {StatusEffectToApply.StatusName}.";
                 else
-                    feedback = $"All targets resisted {sourceAbility.abilityName}.";
+                    feedback = $"All targets resisted {sourceAbility.AbilityName}.";
             }
         }
         else if (primaryTargetStats != null)
         {
-            if (!sourceAbility.usesContest || CombatHelper.ResolveAttributeContest(casterStats, primaryTargetStats, sourceAbility))
+            if (!sourceAbility.UsesContest || CombatHelper.ResolveAttributeContest(casterStats, primaryTargetStats, sourceAbility))
             {
-                primaryTargetStats.GetComponent<CharacterStatusEffects>()?.ApplyStatus(statusEffectToApply, casterStats);
-                feedback = $"{primaryTargetStats.name} is now {statusEffectToApply.statusName}.";
+                primaryTargetStats.GetComponent<CharacterStatusEffects>()?.ApplyStatus(StatusEffectToApply, casterStats);
+                feedback = $"{primaryTargetStats.name} is now {StatusEffectToApply.StatusName}.";
             }
             else
             {
-                feedback = $"{primaryTargetStats.name} resisted {statusEffectToApply.statusName}!";
+                feedback = $"{primaryTargetStats.name} resisted {StatusEffectToApply.StatusName}!";
             }
         }
         

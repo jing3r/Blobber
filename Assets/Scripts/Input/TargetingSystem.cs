@@ -1,82 +1,77 @@
-
 using UnityEngine;
 using UnityEngine.InputSystem;
 
+/// <summary>
+/// Предоставляет централизованные методы для определения цели в мире (Raycasting).
+/// Учитывает состояние курсора (свободный/заблокированный).
+/// </summary>
+[RequireComponent(typeof(PlayerGlobalActions))]
 public class TargetingSystem : MonoBehaviour
 {
-    [Header("Ссылки")]
-    [SerializeField] private PlayerGlobalActions playerGlobalActions;
-    [SerializeField] private Transform cameraTransform;
+    // Кэшированные ссылки
+    private PlayerGlobalActions playerGlobalActions;
+    private Camera mainCamera;
 
-    void Awake()
+    private void Awake()
     {
-        if (playerGlobalActions == null) playerGlobalActions = GetComponent<PlayerGlobalActions>();
-        if (cameraTransform == null) cameraTransform = GetComponentInChildren<Camera>()?.transform;
+        playerGlobalActions = GetComponent<PlayerGlobalActions>();
+        mainCamera = GetComponentInChildren<Camera>();
         
-        if (playerGlobalActions == null || cameraTransform == null)
+        if (mainCamera == null)
         {
-            Debug.LogError("TargetingSystem: Необходимые ссылки не найдены! Система не будет работать.", this);
+            Debug.LogError($"[{nameof(TargetingSystem)}] Main camera not found as a child of '{gameObject.name}'. Disabling component.", this);
             enabled = false;
         }
     }
 
     /// <summary>
-    /// Основной метод для получения цели-трансформа (существа, интерактивные объекты).
+    /// Пытается найти объект в мире по лучу от камеры.
     /// </summary>
+    /// <returns>True, если объект на указанном слое был найден.</returns>
     public bool TryGetTarget(float maxDistance, LayerMask layerMask, out RaycastHit hitInfo)
     {
-        return PerformRaycast(out hitInfo, maxDistance, layerMask);
+        Ray ray = GetRayFromScreenCenterOrCursor();
+        return Physics.Raycast(ray, out hitInfo, maxDistance, layerMask);
     }
     
     /// <summary>
-    /// Специализированный метод для получения точки на земле (для AoE).
+    /// Пытается найти точку на земле, на которую смотрит игрок.
+    /// Используется для способностей, нацеливаемых на землю.
     /// </summary>
-    public bool TryGetGroundPoint(float maxDistance, LayerMask groundDetectionLayers, out Vector3 point)
+    public bool TryGetGroundPoint(float maxDistance, LayerMask groundLayer, out Vector3 point)
     {
         point = Vector3.zero;
-        RaycastHit hit;
+        Ray ray = GetRayFromScreenCenterOrCursor();
 
-        // Сначала пускаем луч на максимальную дистанцию, чтобы определить начальную точку
-        // Используем общую маску, чтобы луч останавливался на препятствиях
-        if (!PerformRaycast(out hit, maxDistance, groundDetectionLayers))
+        // Если луч попадает напрямую в землю
+        if (Physics.Raycast(ray, out var hit, maxDistance, groundLayer))
         {
-            // Если луч ни во что не попал, берем точку на максимальной дальности
-            hit.point = GetRayFromScreen().GetPoint(maxDistance);
+            point = hit.point;
+            return true;
         }
-        
-        // Теперь "приземляем" эту точку
-        if (Physics.Raycast(hit.point + Vector3.up * 5f, Vector3.down, out RaycastHit groundHit, 25f, groundDetectionLayers))
+
+        // Если луч уходит "в небо" или в стену, ищем ближайшую точку на земле под ним
+        Vector3 pointAtMaxDistance = ray.GetPoint(maxDistance);
+        if (Physics.Raycast(pointAtMaxDistance + Vector3.up * 5f, Vector3.down, out var groundHit, 25f, groundLayer))
         {
             point = groundHit.point;
             return true;
         }
 
-        Debug.LogWarning("TargetingSystem: Could not find a valid ground position.");
         return false;
     }
     
-    /// <summary>
-    /// Возвращает луч в зависимости от состояния курсора.
-    /// </summary>
-    public Ray GetRayFromScreen()
+    private Ray GetRayFromScreenCenterOrCursor()
     {
-        Camera mainCamera = cameraTransform.GetComponent<Camera>();
         if (playerGlobalActions.IsCursorFree)
         {
+            // Если курсор свободен, пускаем луч из его позиции
             return mainCamera.ScreenPointToRay(Mouse.current.position.ReadValue());
         }
         else
         {
+            // Если курсор заблокирован, пускаем луч из центра экрана
             return new Ray(mainCamera.transform.position, mainCamera.transform.forward);
         }
-    }
-    
-    /// <summary>
-    /// Централизованная логика рейкаста.
-    /// </summary>
-    private bool PerformRaycast(out RaycastHit hitInfo, float maxDistance, LayerMask layerMask)
-    {
-        Ray ray = GetRayFromScreen();
-        return Physics.Raycast(ray, out hitInfo, maxDistance, layerMask);
     }
 }

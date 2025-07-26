@@ -1,29 +1,29 @@
 using UnityEngine;
 
+/// <summary>
+/// Поворачивает этот GameObject лицом к основной камере сцены.
+/// Используется для UI-элементов в мировом пространстве (например, полоски здоровья над врагами).
+/// </summary>
 public class BillboardUI : MonoBehaviour
 {
-    private Transform mainCameraTransform;
+    private Transform cameraTransform;
 
-    void Start()
+    private void Awake()
     {
         if (Camera.main != null)
         {
-            mainCameraTransform = Camera.main.transform;
+            cameraTransform = Camera.main.transform;
         }
         else
         {
-            Debug.LogError("BillboardUI: Main Camera not found! Script will be disabled.", this);
+            Debug.LogError($"[{nameof(BillboardUI)}] - Main Camera not found on object '{gameObject.name}'. Disabling component.", this);
             enabled = false;
         }
     }
-
-    void LateUpdate()
+    
+    private void LateUpdate()
     {
-        if (mainCameraTransform != null)
-        {
-            // Поворачиваем объект так, чтобы он всегда был обращен к камере
-            transform.LookAt(transform.position + mainCameraTransform.rotation * Vector3.forward,
-                             mainCameraTransform.rotation * Vector3.up);
-        }
+        // Поворачиваем Z-ось нашего объекта в ту же сторону, что и Z-ось камеры.
+        transform.forward = cameraTransform.forward;
     }
 }

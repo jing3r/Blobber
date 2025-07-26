@@ -1,60 +1,50 @@
-// SimpleDoor.cs
-
 using UnityEngine;
 
+/// <summary>
+/// Управляет состоянием простой двери, с которой можно взаимодействовать.
+/// </summary>
 public class SimpleDoor : Interactable, ISaveable
 {
-    [Tooltip("Сообщение после успешного взаимодействия (открытия).")]
-    public string interactionFeedback = "The door is opened";
-    [Tooltip("Сообщение, если дверь уже открыта.")]
-    public string alreadyOpenFeedback = "The door is already open";
-
-    private bool isOpen = false;
+    [Header("Настройки фидбека")]
+    [SerializeField] private string interactionFeedback = "The door opens.";
+    [SerializeField] private string alreadyOpenFeedback = "The door is already open.";
     
+    // [SerializeField] private Animator doorAnimator; // Для будущей анимации
+    [SerializeField] private bool isOpen = false;
+
     public override string Interact()
     {
-        if (!isOpen)
-        {
-            isOpen = true;
-            // Здесь в будущем будет логика анимации, звука и т.д.
-            // Никаких отключений коллайдеров или других "физических" изменений здесь.
-            return interactionFeedback;
-        }
-        else
+        if (isOpen)
         {
             return alreadyOpenFeedback;
         }
+        
+        isOpen = true;
+        // TODO: Запустить анимацию открытия двери
+        // doorAnimator?.SetTrigger("Open");
+        
+        return interactionFeedback;
     }
-
-    #region SaveSystem
     
+    #region Save System Implementation
     [System.Serializable]
     private struct DoorSaveData
     {
-        public bool isOpenState;
+        public bool IsOpen;
     }
 
     public object CaptureState()
     {
-        return new DoorSaveData
-        {
-            isOpenState = this.isOpen
-        };
+        return new DoorSaveData { IsOpen = this.isOpen };
     }
 
     public void RestoreState(object state)
     {
         if (state is DoorSaveData saveData)
         {
-            this.isOpen = saveData.isOpenState;
-
-            // Если нужно визуально отобразить открытое состояние после загрузки,
-            // код для этого должен быть здесь. Например:
-            // if (this.isOpen) {
-            //     GetComponent<MeshRenderer>().material.color = Color.green; // Пример
-            // }
+            this.isOpen = saveData.IsOpen;
+            // TODO: Принудительно установить визуальное состояние двери (открыта/закрыта)
         }
     }
-
     #endregion
 }

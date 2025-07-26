@@ -1,56 +1,72 @@
 using UnityEngine;
 using System.Collections.Generic;
+using System; // Для Serializable
 
+/// <summary>
+/// ScriptableObject, определяющий все свойства статус-эффекта (баффа или дебаффа).
+/// </summary>
 [CreateAssetMenu(fileName = "New Status Effect", menuName = "Abilities/Status Effect Data")]
 public class StatusEffectData : ScriptableObject
 {
     public enum RestoreCondition { Timer, Rest, RequiresCure }
-    public enum DurationAttributeSource { Caster, Target } // Чей атрибут использовать для длительности
+    public enum DurationAttributeSource { Caster, Target }
 
-    [Header("General Info")]
-    public string statusID; // Уникальный идентификатор, например "Poisoned_LV1"
-    public string statusName; // Отображаемое имя, например "Отравление"
-    [TextArea] public string description;
-    public Sprite icon;
-    public bool isBuff = false; // true - бафф, false - дебафф
-
-    [Header("Duration & Stacking")]
-    [Tooltip("Атрибут, влияющий на базовую длительность.")]
-    public AssociatedAttribute durationAttribute = AssociatedAttribute.None;
-    [Tooltip("Чей атрибут использовать для расчета длительности (кастера или цели).")]
-    public DurationAttributeSource durationAttributeSource = DurationAttributeSource.Caster;
-    [Tooltip("Множитель для значения атрибута при расчете длительности (атрибут * множитель = секунды).")]
-    public float durationMultiplier = 1.0f;
-    [Tooltip("Фиксированная длительность в секундах (если атрибут не используется).")]
-    public float fixedDuration = 0f; // Используется, если durationAttribute = None
-    public RestoreCondition restoreCondition = RestoreCondition.Timer;
-    public bool canStack = false; // Пока не реализуем сложную логику стаков
-    // public int maxStacks = 1;
-
-    [Header("Periodic Effects (DoT/HoT)")]
-    [Tooltip("Интервал в секундах между тиками. 0 - нет периодического эффекта.")]
-    public float tickInterval = 0f;
-    public int baseDamagePerTick = 0; // Отрицательное значение для HoT
-    [Tooltip("Атрибут кастера, который скейлит урон/лечение за тик.")]
-    public AssociatedAttribute tickEffectScalingAttribute = AssociatedAttribute.None;
-    public float tickEffectScaleFactor = 0f;
-    [Header("Movement Effects")]
-    [Tooltip("Множитель скорости передвижения. 0.5 = замедление в 2 раза, 1.2 = ускорение на 20%. 1.0 = нет эффекта.")]
-    public float movementSpeedMultiplier = 1.0f; 
-    [Header("Attribute Modifiers")]
-    public List<AttributeModifier> attributeModifiers = new List<AttributeModifier>();
-    
-    [System.Serializable]
+    [Serializable]
     public class AttributeModifier
     {
         public AssociatedAttribute targetAttribute;
-        public int modifierValue; // Отрицательное для дебаффа, положительное для баффа
-        // public bool isPercentage = false; // Пока только абсолютные значения
-        [Tooltip("Когда этот конкретный модификатор снимается (может отличаться от общего RestoreCondition статуса)")]
-        public RestoreCondition modifierRestoreCondition = RestoreCondition.Timer; // По умолчанию наследует от статуса
+        [Tooltip("Отрицательное для дебаффа, положительное для баффа.")]
+        public int modifierValue;
+        [Tooltip("Когда этот конкретный модификатор снимается (может отличаться от общего статуса).")]
+        public RestoreCondition modifierRestoreCondition = RestoreCondition.Timer;
     }
 
-    [Header("Visuals (Optional)")]
-    [Tooltip("Эффект частиц, который будет создан на цели при наложении статуса.")]
-    public GameObject statusVFXPrefab;
+    [Header("Основная информация")]
+    [SerializeField] private string statusID;
+    [SerializeField] private string statusName;
+    [SerializeField] [TextArea] private string description;
+    [SerializeField] private Sprite icon;
+    [SerializeField] private bool isBuff = false;
+
+    [Header("Длительность и стаки")]
+    [SerializeField] private AssociatedAttribute durationAttribute = AssociatedAttribute.None;
+    [SerializeField] private DurationAttributeSource durationAttributeSource = DurationAttributeSource.Caster;
+    [SerializeField] private float durationMultiplier = 1.0f;
+    [SerializeField] private float fixedDuration = 0f;
+    [SerializeField] private RestoreCondition restoreCondition = RestoreCondition.Timer;
+    [SerializeField] private bool canStack = false;
+
+    [Header("Периодические эффекты (DoT/HoT)")]
+    [SerializeField] [Tooltip("Интервал в секундах между тиками. 0 - нет эффекта.")] private float tickInterval = 0f;
+    [SerializeField] private int baseDamagePerTick = 0;
+    [SerializeField] private AssociatedAttribute tickEffectScalingAttribute = AssociatedAttribute.None;
+    [SerializeField] private float tickEffectScaleFactor = 0f;
+    
+    [Header("Эффекты на движение")]
+    [SerializeField] [Tooltip("Множитель скорости. <1 для замедления, >1 для ускорения.")] private float movementSpeedMultiplier = 1.0f;
+    
+    [Header("Модификаторы атрибутов")]
+    [SerializeField] private List<AttributeModifier> attributeModifiers = new List<AttributeModifier>();
+    
+    [Header("Визуальные эффекты")]
+    [SerializeField] private GameObject statusVFXPrefab;
+    
+    public string StatusID => statusID;
+    public string StatusName => statusName;
+    public string Description => description;
+    public Sprite Icon => icon;
+    public bool IsBuff => isBuff;
+    public AssociatedAttribute DurationAttribute => durationAttribute;
+    public DurationAttributeSource DurationSource => durationAttributeSource;
+    public float DurationMultiplier => durationMultiplier;
+    public float FixedDuration => fixedDuration;
+    public RestoreCondition Condition => restoreCondition;
+    public bool CanStack => canStack;
+    public float TickInterval => tickInterval;
+    public int BaseDamagePerTick => baseDamagePerTick;
+    public AssociatedAttribute TickEffectScalingAttribute => tickEffectScalingAttribute;
+    public float TickEffectScaleFactor => tickEffectScaleFactor;
+    public float MovementSpeedMultiplier => movementSpeedMultiplier;
+    public IReadOnlyList<AttributeModifier> AttributeModifiers => attributeModifiers.AsReadOnly();
+    public GameObject StatusVFXPrefab => statusVFXPrefab;
 }

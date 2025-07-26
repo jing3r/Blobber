@@ -19,4 +19,4 @@ MonoBehaviour:
   gridWidth: 2
   gridHeight: 3
   maxStackSize: 1
-  validSlots: 18
+  validSlots: 16

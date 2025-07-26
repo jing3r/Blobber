@@ -2,31 +2,26 @@ using UnityEngine;
 using System.Collections.Generic;
 using System.Linq;
 
+/// <summary>
+/// Управляет активными статус-эффектами (баффами и дебаффами) на персонаже.
+/// </summary>
+[RequireComponent(typeof(CharacterStats))]
 public class CharacterStatusEffects : MonoBehaviour
 {
-    private CharacterStats _characterStats;
-    private List<ActiveStatusEffect> _activeEffects = new List<ActiveStatusEffect>();
-    public bool IsStatusActive(StatusEffectData statusData)
-    {
-        if (statusData == null) return false;
-        // Сравниваем напрямую SO или по ID, если SO может быть дублирован. Прямое сравнение надежнее.
-        return _activeEffects.Any(e => e.Data == statusData);
-    }
-    [System.Obsolete("Use IsStatusActive(StatusEffectData) instead.")]
-    public bool IsStatusActive(string statusID)
-    {
-        return _activeEffects.Any(e => e.Data.statusID == statusID);
-    }
-
-    // ----- ИЗМЕНЕНИЕ: Сделать класс публичным -----
-    public class ActiveStatusEffect // Был private по умолчанию
+    /// <summary>
+    /// Внутренний класс для хранения состояния активного статус-эффекта.
+    /// </summary>
+    public class ActiveStatusEffect
     {
         public StatusEffectData Data { get; }
         public CharacterStats Caster { get; }
         public float TimeRemaining { get; set; }
         public float LastTickTime { get; set; }
+        
+        // Храним ссылки на примененные модификаторы, чтобы корректно их снять
         public List<StatusEffectData.AttributeModifier> AppliedModifiers { get; }
-        public float AppliedSpeedMultiplier { get; set; } = 1.0f; // Запоминаем примененный множитель скорости
+        public float AppliedSpeedMultiplier { get; set; }
+
         public ActiveStatusEffect(StatusEffectData data, CharacterStats caster, float duration)
         {
             Data = data;
@@ -34,221 +29,217 @@ public class CharacterStatusEffects : MonoBehaviour
             TimeRemaining = duration;
             LastTickTime = Time.time;
             AppliedModifiers = new List<StatusEffectData.AttributeModifier>();
+            AppliedSpeedMultiplier = 1.0f; // Значение по умолчанию
         }
     }
-    // -------------------------------------------
 
-    void Awake()
+    private CharacterStats characterStats;
+    private readonly List<ActiveStatusEffect> activeEffects = new List<ActiveStatusEffect>();
+    // TODO: Добавить публичное свойство IReadOnlyList<ActiveStatusEffect> для UI, если потребуется
+
+    private void Awake()
     {
-        _characterStats = GetComponent<CharacterStats>();
-        if (_characterStats == null)
-        {
-            Debug.LogError($"CharacterStatusEffects на {gameObject.name} не может найти CharacterStats!", this);
-            enabled = false;
-        }
+        characterStats = GetComponent<CharacterStats>();
     }
 
-    void Update()
+    private void Update()
     {
-        if (_activeEffects.Count == 0) return;
+        if (activeEffects.Count == 0) return;
 
-        for (int i = _activeEffects.Count - 1; i >= 0; i--)
+        // Итерируемся в обратном порядке, так как можем удалять элементы из списка
+        for (int i = activeEffects.Count - 1; i >= 0; i--)
         {
-            ActiveStatusEffect effect = _activeEffects[i];
-
-            if (effect.Data.restoreCondition == StatusEffectData.RestoreCondition.Timer)
-            {
-                effect.TimeRemaining -= Time.deltaTime;
-                if (effect.TimeRemaining <= 0)
-                {
-                    RemoveStatus(effect, true);
-                    continue;
-                }
-            }
-
-            if (effect.Data.tickInterval > 0 && Time.time >= effect.LastTickTime + effect.Data.tickInterval)
-            {
-                ApplyTickEffect(effect);
-                effect.LastTickTime = Time.time;
-            }
+            var effect = activeEffects[i];
+            UpdateEffectTimer(effect);
+            UpdateEffectTick(effect);
         }
     }
 
-
-    // --- ПОЛНЫЙ МЕТОД ApplyStatus ---
+    /// <summary>
+    /// Применяет новый статус-эффект к персонажу.
+    /// </summary>
+    /// <param name="effectData">Данные применяемого эффекта.</param>
+    /// <param name="casterStats">Статы того, кто наложил эффект (может быть null).</param>
     public void ApplyStatus(StatusEffectData effectData, CharacterStats casterStats)
     {
-        if (effectData == null || _characterStats == null) return;
+        if (effectData == null || characterStats.IsDead) return;
 
-        // Если статус не стакается, и такой статус уже активен, обновляем его длительность и выходим.
-        if (!effectData.canStack && _activeEffects.Any(e => e.Data.statusID == effectData.statusID))
+        if (!effectData.CanStack)
         {
-            ActiveStatusEffect existingEffect = _activeEffects.First(e => e.Data.statusID == effectData.statusID);
-            // Обновляем длительность, если это таймерный эффект.
-            if (effectData.restoreCondition == StatusEffectData.RestoreCondition.Timer)
+            var existingEffect = activeEffects.FirstOrDefault(e => e.Data == effectData);
+            if (existingEffect != null)
             {
-                float newDuration = 0;
-                if (effectData.durationAttribute != AssociatedAttribute.None)
-                {
-                    int attributeValue = (effectData.durationAttributeSource == StatusEffectData.DurationAttributeSource.Caster && casterStats != null)
-                        ? casterStats.GetAttributeValue(effectData.durationAttribute)
-                        : _characterStats.GetAttributeValue(effectData.durationAttribute);
-                    newDuration = attributeValue * effectData.durationMultiplier;
-                }
-                else
-                {
-                    newDuration = effectData.fixedDuration;
-                }
-                existingEffect.TimeRemaining = Mathf.Max(existingEffect.TimeRemaining, newDuration); // Обновляем на большее значение
+                RefreshExistingEffect(existingEffect, effectData, casterStats);
+                return;
             }
-            // Debug.Log($"Status '{effectData.statusName}' already active on {_characterStats.name}. Duration refreshed.");
-            return; // Не применяем новый экземпляр, только обновили существующий
         }
 
-
-        // Рассчитываем длительность для нового активного эффекта
-        float duration = 0;
-        if (effectData.restoreCondition == StatusEffectData.RestoreCondition.Timer)
+        float duration = CalculateDuration(effectData, casterStats);
+        
+        // Не применяем временные эффекты с нулевой длительностью, если у них нет других механик
+        bool hasPersistentModifiers = effectData.AttributeModifiers.Any(m => m.modifierRestoreCondition != StatusEffectData.RestoreCondition.Timer);
+        if (effectData.Condition == StatusEffectData.RestoreCondition.Timer && duration <= 0 && effectData.TickInterval <= 0 && !hasPersistentModifiers)
         {
-            if (effectData.durationAttribute != AssociatedAttribute.None)
-            {
-                int attributeValue = (effectData.durationAttributeSource == StatusEffectData.DurationAttributeSource.Caster && casterStats != null)
-                    ? casterStats.GetAttributeValue(effectData.durationAttribute)
-                    : _characterStats.GetAttributeValue(effectData.durationAttribute);
-                duration = attributeValue * effectData.durationMultiplier;
-            }
-            else
-            {
-                duration = effectData.fixedDuration;
-            }
-            duration = Mathf.Max(0, duration);
-        }
-
-        // Если это таймерный статус с нулевой длительностью, нет тиков, и нет модификаторов "до отдыха", не применяем.
-        bool hasRestModifiers = effectData.attributeModifiers.Any(m => m.modifierRestoreCondition == StatusEffectData.RestoreCondition.Rest);
-        if (effectData.restoreCondition == StatusEffectData.RestoreCondition.Timer && duration <= 0 && effectData.tickInterval <= 0 && !hasRestModifiers)
-        {
-            Debug.LogWarning($"Status '{effectData.statusName}' on {_characterStats.name} not applied: Timer based, 0 duration, no ticks, no 'rest' modifiers. Check StatusEffectData config.");
             return;
         }
 
-
-        ActiveStatusEffect newActiveEffect = new ActiveStatusEffect(effectData, casterStats, duration);
-        _activeEffects.Add(newActiveEffect);
-
-        // Применяем модификаторы атрибутов
-        foreach (var mod in effectData.attributeModifiers)
-        {
-            var actualRestoreCondition = mod.modifierRestoreCondition;
-            if (effectData.restoreCondition == StatusEffectData.RestoreCondition.Rest) // Если сам статус "до отдыха", все его модификаторы тоже "до отдыха"
-            {
-                actualRestoreCondition = StatusEffectData.RestoreCondition.Rest;
-            }
-            _characterStats.AddAttributeModifier(mod.targetAttribute, mod.modifierValue, actualRestoreCondition);
-            newActiveEffect.AppliedModifiers.Add(mod);
-        }
-
-        // Применяем множитель скорости передвижения, если статус его имеет
-        if (effectData.movementSpeedMultiplier != 1.0f)
-        {
-            _characterStats.ApplySpeedMultiplier(effectData.movementSpeedMultiplier);
-            newActiveEffect.AppliedSpeedMultiplier = effectData.movementSpeedMultiplier; // Запоминаем примененный множитель
-            // Debug.Log($"{_characterStats.name} received status '{effectData.statusName}'. Speed multiplier applied: {effectData.movementSpeedMultiplier}. Current cumulative: {_characterStats._movementSpeedMultiplierFromStatus}.");
-        }
-
-        // TODO: Создать VFX, если есть (effectData.statusVFXPrefab)
-        if (effectData.statusVFXPrefab != null)
-        {
-            // Инстанцировать VFX и хранить ссылку, чтобы уничтожить при RemoveStatus
-            // Например: GameObject vfx = Instantiate(effectData.statusVFXPrefab, _characterStats.transform);
-            // newActiveEffect.VFXInstance = vfx; // Если добавить поле VFXInstance в ActiveStatusEffect
-        }
-
-        // Debug.Log($"{_characterStats.name} received status: {effectData.statusName} from {casterStats?.name}. Duration: {duration:F1}s.");
+        var newActiveEffect = new ActiveStatusEffect(effectData, casterStats, duration);
+        activeEffects.Add(newActiveEffect);
+        
+        ApplyAllComponentEffects(newActiveEffect);
+        
+        // TODO: Инстанцировать и управлять VFX для статуса
     }
 
-    private void ApplyTickEffect(ActiveStatusEffect activeEffect)
+    /// <summary>
+    /// Проверяет, активен ли на персонаже указанный статус-эффект.
+    /// </summary>
+    public bool IsStatusActive(StatusEffectData statusData)
     {
-        StatusEffectData data = activeEffect.Data;
-        if (data.baseDamagePerTick != 0)
-        {
-            int tickAmount = data.baseDamagePerTick;
-            if (data.tickEffectScalingAttribute != AssociatedAttribute.None && activeEffect.Caster != null)
-            {
-                tickAmount += Mathf.FloorToInt(
-                    activeEffect.Caster.GetAttributeValue(data.tickEffectScalingAttribute) * data.tickEffectScaleFactor
-                );
-            }
+        if (statusData == null) return false;
+        return activeEffects.Any(e => e.Data == statusData);
+    }
+    
+    /// <summary>
+    /// Снимает все эффекты, которые должны исчезать после отдыха.
+    /// </summary>
+    public void ClearStatusEffectsOnRest()
+    {
+        characterStats.ClearRestAttributeModifiers();
 
-            if (tickAmount > 0)
-                _characterStats.TakeDamage(tickAmount, activeEffect.Caster?.transform);
-            else if (tickAmount < 0)
-                _characterStats.Heal(Mathf.Abs(tickAmount));
+        // Создаем копию списка, так как RemoveStatus будет его изменять
+        var effectsToRemove = activeEffects
+            .Where(e => e.Data.Condition == StatusEffectData.RestoreCondition.Rest)
+            .ToList();
+            
+        foreach(var effect in effectsToRemove)
+        {
+            RemoveStatus(effect, false);
         }
     }
-
+    /// <summary>
+    /// Находит и удаляет активный статус-эффект по его данным (ScriptableObject).
+    /// </summary>
     public void RemoveStatus(StatusEffectData statusDataToRemove)
     {
         if (statusDataToRemove == null) return;
-        ActiveStatusEffect effectToRemove = _activeEffects.FirstOrDefault(e => e.Data == statusDataToRemove);
+
+        // Ищем активный эффект, соответствующий переданным данным
+        var effectToRemove = activeEffects.FirstOrDefault(e => e.Data == statusDataToRemove);
         if (effectToRemove != null)
         {
-            // Вызываем наш основной метод удаления по инстансу
+            // Вызываем наш внутренний, приватный метод для безопасного удаления
             RemoveStatus(effectToRemove, false);
         }
     }
 
-    public void ClearStatusEffectsOnRest()
+    #region Private Logic
+    private void UpdateEffectTimer(ActiveStatusEffect effect)
     {
-        _characterStats.ClearRestAttributeModifiers();
-
-        for (int i = _activeEffects.Count - 1; i >= 0; i--)
+        if (effect.Data.Condition == StatusEffectData.RestoreCondition.Timer)
         {
-            ActiveStatusEffect currentEffect = _activeEffects[i];
-
-            // Снимаем только те, что снимаются при отдыхе.
-            // Timer и RequiresCure остаются.
-            if (currentEffect.Data.restoreCondition == StatusEffectData.RestoreCondition.Rest)
+            effect.TimeRemaining -= Time.deltaTime;
+            if (effect.TimeRemaining <= 0)
             {
-                // Этот вызов уже откатывает все модификаторы, так что он безопасен
-                RemoveStatus(currentEffect, false);
+                RemoveStatus(effect, true);
             }
         }
-
-        _characterStats.RecalculateAllStats();
     }
 
-    // public void CureStatus(CureType cureType) { ... } // для RequiresCure
-
-    // Старый метод для обратной совместимости или для удаления, когда все вызовы будут заменены.
-    public void RemoveStatusByID(string statusID)
+    private void UpdateEffectTick(ActiveStatusEffect effect)
     {
-        ActiveStatusEffect effectToRemove = _activeEffects.FirstOrDefault(e => e.Data.statusID == statusID);
-        if (effectToRemove != null)
+        if (effect.Data.TickInterval > 0 && Time.time >= effect.LastTickTime + effect.Data.TickInterval)
         {
-            RemoveStatus(effectToRemove, false);
+            ApplyTickEffect(effect);
+            effect.LastTickTime = Time.time;
+        }
+    }
+
+    private void RefreshExistingEffect(ActiveStatusEffect existingEffect, StatusEffectData newData, CharacterStats caster)
+    {
+        if (newData.Condition == StatusEffectData.RestoreCondition.Timer)
+        {
+            float newDuration = CalculateDuration(newData, caster);
+            existingEffect.TimeRemaining = Mathf.Max(existingEffect.TimeRemaining, newDuration);
+        }
+    }
+
+    private void ApplyAllComponentEffects(ActiveStatusEffect effect)
+    {
+        // Применяем модификаторы атрибутов
+        foreach (var mod in effect.Data.AttributeModifiers)
+        {
+            // Убеждаемся, что модификаторы статуса "до отдыха" всегда применяются как "до отдыха"
+            var condition = (effect.Data.Condition == StatusEffectData.RestoreCondition.Rest) 
+                ? StatusEffectData.RestoreCondition.Rest : mod.modifierRestoreCondition;
+            
+            characterStats.AddAttributeModifier(mod.targetAttribute, mod.modifierValue, condition);
+            effect.AppliedModifiers.Add(mod);
+        }
+
+        // Применяем множитель скорости
+        if (!Mathf.Approximately(effect.Data.MovementSpeedMultiplier, 1.0f))
+        {
+            characterStats.ApplySpeedMultiplier(effect.Data.MovementSpeedMultiplier);
+            effect.AppliedSpeedMultiplier = effect.Data.MovementSpeedMultiplier;
         }
     }
     
-        private void RemoveStatus(ActiveStatusEffect effectInstance, bool expiredByTimer)
+    private void RemoveAllComponentEffects(ActiveStatusEffect effect)
     {
-        if (effectInstance == null || !_activeEffects.Contains(effectInstance)) return;
-
-        foreach (var mod in effectInstance.AppliedModifiers)
+        // Снимаем модификаторы атрибутов
+        foreach (var mod in effect.AppliedModifiers)
         {
-             var actualRestoreCondition = mod.modifierRestoreCondition;
-             if (effectInstance.Data.restoreCondition == StatusEffectData.RestoreCondition.Rest)
-             {
-                 actualRestoreCondition = StatusEffectData.RestoreCondition.Rest;
-             }
-            _characterStats.RemoveAttributeModifier(mod.targetAttribute, mod.modifierValue, actualRestoreCondition);
+            var condition = (effect.Data.Condition == StatusEffectData.RestoreCondition.Rest) 
+                ? StatusEffectData.RestoreCondition.Rest : mod.modifierRestoreCondition;
+
+            characterStats.RemoveAttributeModifier(mod.targetAttribute, mod.modifierValue, condition);
         }
         
-        if (effectInstance.AppliedSpeedMultiplier != 1.0f) 
+        // Снимаем множитель скорости
+        if (!Mathf.Approximately(effect.AppliedSpeedMultiplier, 1.0f))
         {
-            _characterStats.RemoveSpeedMultiplier(effectInstance.AppliedSpeedMultiplier);
+            characterStats.RemoveSpeedMultiplier(effect.AppliedSpeedMultiplier);
+        }
+    }
+    
+    private float CalculateDuration(StatusEffectData effectData, CharacterStats casterStats)
+    {
+        if (effectData.Condition != StatusEffectData.RestoreCondition.Timer) return float.PositiveInfinity;
+        if (effectData.DurationAttribute == AssociatedAttribute.None) return effectData.FixedDuration;
+
+        var sourceStats = (effectData.DurationSource == StatusEffectData.DurationAttributeSource.Caster && casterStats != null)
+            ? casterStats
+            : characterStats;
+            
+        int attributeValue = sourceStats.GetAttributeValue(effectData.DurationAttribute);
+        return Mathf.Max(0, attributeValue * effectData.DurationMultiplier);
+    }
+    
+    private void ApplyTickEffect(ActiveStatusEffect activeEffect)
+    {
+        var data = activeEffect.Data;
+        if (data.BaseDamagePerTick == 0) return;
+
+        int tickAmount = data.BaseDamagePerTick;
+        if (data.TickEffectScalingAttribute != AssociatedAttribute.None && activeEffect.Caster != null)
+        {
+            int scalingAttributeValue = activeEffect.Caster.GetAttributeValue(data.TickEffectScalingAttribute);
+            tickAmount += Mathf.FloorToInt(scalingAttributeValue * data.TickEffectScaleFactor);
         }
 
-        _activeEffects.Remove(effectInstance);
+        if (tickAmount > 0)
+            characterStats.TakeDamage(tickAmount, activeEffect.Caster?.transform);
+        else if (tickAmount < 0)
+            characterStats.Heal(Mathf.Abs(tickAmount));
     }
+
+    private void RemoveStatus(ActiveStatusEffect effectInstance, bool expiredByTimer)
+    {
+        if (effectInstance == null || !activeEffects.Contains(effectInstance)) return;
+
+        RemoveAllComponentEffects(effectInstance);
+        activeEffects.Remove(effectInstance);
+    }
+    #endregion
 }

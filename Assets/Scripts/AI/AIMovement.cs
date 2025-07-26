@@ -1,99 +1,58 @@
 using UnityEngine;
-using UnityEngine.AI; // Для NavMeshAgent
+using UnityEngine.AI;
 
+/// <summary>
+/// Обеспечивает навигацию AI с использованием NavMeshAgent.
+/// Отвечает за движение к точке, следование за целью и повороты.
+/// </summary>
 [RequireComponent(typeof(NavMeshAgent))]
-[RequireComponent(typeof(CharacterStats))] // Убедимся, что CharacterStats есть
+[RequireComponent(typeof(CharacterStats))]
 public class AIMovement : MonoBehaviour
 {
     private NavMeshAgent agent;
+    private CharacterStats myStats;
+    
     private Transform followTarget;
-    private bool isFollowingTarget = false;
-    private CharacterStats myStats; // Ссылка на CharacterStats этого NPC
-
-    // Свойства для чтения состояния агента
+    private bool isFollowingTarget;
+    
     public bool IsMoving => agent.velocity.sqrMagnitude > 0.01f && agent.hasPath && !agent.isStopped;
     public bool HasReachedDestination => !agent.pathPending && agent.remainingDistance <= agent.stoppingDistance && (!agent.hasPath || agent.velocity.sqrMagnitude == 0f);
-    public float StoppingDistance 
+    public Vector3 Destination => agent.destination;
+    public float StoppingDistance
     {
         get => agent.stoppingDistance;
         set => agent.stoppingDistance = value;
     }
 
-    void Awake()
+    private void Awake()
     {
         agent = GetComponent<NavMeshAgent>();
         myStats = GetComponent<CharacterStats>(); 
-
-        if (myStats == null)
-        {
-            Debug.LogError($"AIMovement на {gameObject.name} не может найти CharacterStats! AI движение будет отключено.", this);
-            enabled = false; 
-            return;
-        }
-        if (agent == null)
-        {
-             Debug.LogError($"AIMovement на {gameObject.name} не может найти NavMeshAgent! AI движение будет отключено.", this);
-            enabled = false;
-            return;
-        }
     }
 
-    void Start() 
+    private void Start() 
     {
-        // Устанавливаем начальную скорость NavMeshAgent из CharacterStats
-        // CharacterStats.Awake -> RecalculateAllStats -> CurrentMovementSpeed уже должен быть рассчитан
-        if (agent.isOnNavMesh) // Проверяем, что агент на NavMesh перед установкой скорости
-        {
-            agent.speed = myStats.CurrentMovementSpeed;
-        }
-        else
-        {
-            // Debug.LogWarning($"AIMovement Start: {gameObject.name} is not on NavMesh. Speed not set yet.");
-            // Можно попробовать установить скорость позже, если агент появится на NavMesh,
-            // или убедиться, что NPC спаунятся на NavMesh.
-        }
-
-        // Подписываемся на изменение атрибутов, чтобы обновлять скорость агента,
-        // если CurrentMovementSpeed в CharacterStats изменится (например, от статусов или смены Agility)
+        UpdateAgentSpeedFromStats();
+        
+        // Подписка для автоматического обновления скорости при изменении статов.
         myStats.onAttributesChanged += UpdateAgentSpeedFromStats;
     }
     
-    void OnDestroy() 
+    private void OnDestroy() 
     {
-        // Отписываемся от события, чтобы избежать ошибок
         if (myStats != null)
         {
             myStats.onAttributesChanged -= UpdateAgentSpeedFromStats;
         }
     }
 
-    /// <summary>
-    /// Обновляет скорость NavMeshAgent на основе CurrentMovementSpeed из CharacterStats.
-    /// Вызывается событием onAttributesChanged.
-    /// </summary>
-    private void UpdateAgentSpeedFromStats()
+    private void Update()
     {
-        if (agent.isOnNavMesh && myStats != null) // Дополнительная проверка на myStats
-        {
-            if (agent.speed != myStats.CurrentMovementSpeed) // Обновляем только если значение изменилось
-            {
-                agent.speed = myStats.CurrentMovementSpeed;
-                // Debug.Log($"{gameObject.name} NavMeshAgent speed updated to: {agent.speed}");
-            }
-        }
-    }
-
-    void Update()
-    {
-        // Основная логика движения при следовании за целью
+        // Обновляем позицию назначения, только если AI находится в режиме следования
+        // и позиция цели изменилась (небольшая оптимизация).
         if (isFollowingTarget && followTarget != null && agent.isOnNavMesh && !agent.isStopped)
         {
-            // Проверяем, действительно ли нужно обновлять цель каждый кадр,
-            // NavMeshAgent сам будет следовать к установленной цели.
-            // Обновление может быть полезно, если цель очень быстро меняет направление.
-            // Но для оптимизации можно обновлять реже, если followTarget не слишком быстро движется.
-            // Пока оставим обновление каждый кадр для точности.
-            if (agent.destination != followTarget.position) // Оптимизация: устанавливаем только если изменилась
+            if (agent.destination != followTarget.position)
             {
                 agent.SetDestination(followTarget.position);
             }
@@ -101,23 +60,20 @@ public class AIMovement : MonoBehaviour
     }
 
     /// <summary>
-    /// Отправляет AI к указанной точке.
+    /// Отправляет AI к указанной точке в мире.
     /// </summary>
-    /// <returns>True, если путь успешно установлен.</returns>
-    public bool MoveTo(Vector3 destination)
+    public void MoveTo(Vector3 destination)
     {
-        isFollowingTarget = false; // Прекращаем следование, если было
+        isFollowingTarget = false;
         if (agent.isOnNavMesh)
         {
-            agent.isStopped = false; // Убедимся, что агент может двигаться
-            return agent.SetDestination(destination);
+            agent.isStopped = false;
+            agent.SetDestination(destination);
         }
-        // Debug.LogWarning($"{gameObject.name} (AIMovement.MoveTo): Not on NavMesh. Cannot set destination.");
-        return false;
     }
 
     /// <summary>
-    /// Заставляет AI следовать за указанной целью.
+    /// Заставляет AI постоянно следовать за указанной целью.
     /// </summary>
     public void Follow(Transform target)
     {
@@ -127,30 +83,26 @@ public class AIMovement : MonoBehaviour
             isFollowingTarget = true;
             if (agent.isOnNavMesh)
             {
-                agent.isStopped = false; // Убедимся, что агент может двигаться
-                agent.SetDestination(target.position); // Устанавливаем первую цель
+                agent.isStopped = false;
+                agent.SetDestination(target.position);
             }
-            // else Debug.LogWarning($"{gameObject.name} (AIMovement.Follow): Not on NavMesh. Cannot start following {target.name}.");
         }
         else
         {
-            // Если цель null, прекращаем следование и останавливаемся
-            StopMovement(true);
-            isFollowingTarget = false;
-            followTarget = null;
+            StopMovement();
         }
     }
 
     /// <summary>
-    /// Останавливает текущее движение AI.
+    /// Останавливает любое текущее движение AI.
     /// </summary>
-    /// <param name="cancelPath">Если true, текущий путь будет сброшен.</param>
     public void StopMovement(bool cancelPath = true)
     {
-        isFollowingTarget = false; // В любом случае прекращаем следование
+        isFollowingTarget = false;
+        followTarget = null;
         if (agent.isOnNavMesh)
         {
-            if (!agent.isStopped) agent.isStopped = true;
+            agent.isStopped = true;
             if (cancelPath && agent.hasPath)
             {
                 agent.ResetPath();
@@ -159,68 +111,40 @@ public class AIMovement : MonoBehaviour
     }
     
     /// <summary>
-    /// Возобновляет движение по текущему пути, если он был.
-    /// </summary>
-    public void ResumeMovement()
-    {
-        if (agent.isOnNavMesh && agent.hasPath) // Возобновляем только если есть путь
-        {
-            agent.isStopped = false;
-        }
-    }
-
-    // Метод SetSpeed(float speed) можно оставить, если нужна возможность внешне
-    // ПЕРЕОПРЕДЕЛИТЬ скорость агента, игнорируя CharacterStats.
-    // Но если скорость всегда должна браться из CharacterStats, то он не нужен,
-    // так как UpdateAgentSpeedFromStats будет делать это автоматически.
-    // Если он остается, он должен быть использован с осторожностью.
-    // Пока оставим его, на случай если AI состояниям понадобится временно изменить скорость
-    // (например, для рывка AI или замедленного движения при поиске).
-    public void SetSpeed(float speed)
-    {
-        if (agent.isOnNavMesh)
-        {
-            agent.speed = speed;
-        }
-    }
-
-    /// <summary>
-    /// Возвращает текущую установленную скорость NavMeshAgent.
-    /// </summary>
-    public float GetSpeed()
-    {
-        return agent.isOnNavMesh ? agent.speed : 0f;
-    }
-
-    public bool IsOnNavMesh() => agent.isOnNavMesh;
-    public bool IsStopped() => agent.isStopped;
-    
-    public void EnableAgent() { if (!agent.enabled) agent.enabled = true; }
-    public void DisableAgent() { if (agent.enabled) agent.enabled = false; }
-
-    public void ResetAndStopAgent()
-    {
-        if (agent.isOnNavMesh)
-        {
-            agent.isStopped = true;
-            if(agent.hasPath) agent.ResetPath();
-        }
-        isFollowingTarget = false;
-        followTarget = null; // Сбрасываем цель следования
-    }
-
-    /// <summary>
     /// Мгновенно поворачивает AI лицом к цели.
     /// </summary>
     public void FaceTarget(Transform target) 
     {
         if (target == null) return;
-        Vector3 direction = (target.position - transform.position).normalized;
-        if (direction != Vector3.zero) // Проверка, чтобы избежать ошибки с LookRotation(0,0,0)
+        
+        Vector3 direction = (target.position - transform.position);
+        direction.y = 0; // Поворот только в горизонтальной плоскости
+
+        if (direction != Vector3.zero)
         {
-            // Поворачиваем только по оси Y
-            Quaternion lookRotation = Quaternion.LookRotation(new Vector3(direction.x, 0, direction.z));
-            transform.rotation = lookRotation; 
+            transform.rotation = Quaternion.LookRotation(direction);
+        }
+    }
+    
+    /// <summary>
+    /// Полностью сбрасывает состояние агента. Используется при смерти AI.
+    /// </summary>
+    public void ResetAndStopAgent()
+    {
+        StopMovement();
+    }
+    
+    public void EnableAgent() { if (agent != null && !agent.enabled) agent.enabled = true; }
+    public void DisableAgent() { if (agent != null && agent.enabled) agent.enabled = false; }
+
+    /// <summary>
+    /// Синхронизирует скорость NavMeshAgent со значением из CharacterStats.
+    /// </summary>
+    private void UpdateAgentSpeedFromStats()
+    {
+        if (agent.isOnNavMesh && agent.speed != myStats.CurrentMovementSpeed)
+        {
+            agent.speed = myStats.CurrentMovementSpeed;
         }
     }
 }

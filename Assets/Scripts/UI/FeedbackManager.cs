@@ -1,68 +1,63 @@
-
 using UnityEngine;
 using TMPro;
 using System.Collections;
+using System.Linq;
 
+/// <summary>
+/// Управляет отображением текстовой информации для игрока в едином UI-элементе.
+/// Показывает как временный фидбек (результаты действий), так и постоянный (информация о цели под курсором).
+/// </summary>
 public class FeedbackManager : MonoBehaviour
 {
-    [Header("Ссылки UI")]
-    [Tooltip("Текстовое поле для отображения подсказок и фидбека.")]
-    public TextMeshProUGUI promptText;
+    [Header("Ссылки на UI")]
+    [SerializeField] private TextMeshProUGUI promptText;
 
-    [Header("Настройки Фидбека")]
-    [Tooltip("Как долго показывать сообщение о результате действия (в секундах).")]
-    public float feedbackDuration = 2.0f;
+    [Header("Настройки")]
+    [SerializeField] [Tooltip("Как долго показывать временное сообщение в секундах.")]
+    private float feedbackDuration = 2.0f;
 
-    private Coroutine feedbackCoroutine;
-    
-    // --- ИЗМЕНЕНИЕ: Ссылка на InputManager вместо PlayerGlobalActions ---
-    private InputManager inputManager;
-    // --- НОВОЕ: Ссылка на TargetingSystem для получения информации о цели ---
     private TargetingSystem targetingSystem;
     private PartyManager partyManager;
 
-    void Awake()
+    private Coroutine feedbackCoroutine;
+
+    private void Awake()
     {
         if (promptText == null)
         {
-            Debug.LogError("FeedbackManager: TextMeshProUGUI (promptText) не назначен!", this);
+            Debug.LogError($"[{nameof(FeedbackManager)}] Prompt Text не назначен.", this);
             enabled = false;
             return;
         }
-        promptText.text = "";
+        promptText.text = string.Empty;
 
-        // Находим InputManager на объекте игрока
-        inputManager = FindObjectOfType<InputManager>();
         targetingSystem = FindObjectOfType<TargetingSystem>();
         partyManager = FindObjectOfType<PartyManager>();
-
-        if (inputManager == null)
-        {
-            Debug.LogWarning("FeedbackManager: Не удалось найти InputManager. Обновление информации о наведении не будет работать.", this);
-        }
     }
 
-    void Update()
+    private void Update()
     {
-        // Если сейчас не показывается временный фидбек, обновляем информацию о наведении
+        // Если в данный момент не отображается временное сообщение,
+        // обновляем текст информацией о том, на что наведен курсор.
         if (feedbackCoroutine == null)
         {
-            string hoverInfo = GetCurrentHoverInfo();
-            if (promptText.text != hoverInfo)
-            {
-                promptText.text = hoverInfo;
-            }
+            promptText.text = GetCurrentHoverInfo();
         }
     }
 
     /// <summary>
-    /// Показывает временное сообщение в UI.
+    /// Показывает временное сообщение, которое исчезнет через feedbackDuration.
     /// </summary>
     public void ShowFeedbackMessage(string message)
     {
-        if (string.IsNullOrEmpty(message) || promptText == null) return;
+        if (string.IsNullOrEmpty(message) || !enabled) return;
 
-        StopCurrentFeedback();
+        // Если уже есть активный фидбек, прерываем его
+        if (feedbackCoroutine != null)
+        {
+            StopCoroutine(feedbackCoroutine);
+        }
+        
         promptText.text = message;
         feedbackCoroutine = StartCoroutine(ClearFeedbackAfterDelay());
     }
@@ -71,60 +66,60 @@ public class FeedbackManager : MonoBehaviour
     {
         yield return new WaitForSeconds(feedbackDuration);
         feedbackCoroutine = null;
+        // После исчезновения фидбека, текст немедленно обновится информацией о наведении в следующем Update.
     }
 
-    public void StopCurrentFeedback()
-    {
-        if (feedbackCoroutine != null)
-        {
-            StopCoroutine(feedbackCoroutine);
-            feedbackCoroutine = null;
-        }
-    }
-
-    // --- НОВЫЙ МЕТОД: Логика отображения информации о цели, перенесенная сюда ---
     private string GetCurrentHoverInfo()
     {
-        if (targetingSystem == null || partyManager == null) return "";
+        if (targetingSystem == null || partyManager == null) return string.Empty;
         
-        // Используем настройки из InputManager или PlayerGlobalActions, нужна общая точка
-        // Пока возьмем дефолтные значения
-        float checkDistance = 15f; 
-        LayerMask checkLayerMask = ~0; // Все слои
+        const float checkDistance = 15f;
+        
+        // Используем маску, которая включает все, с чем можно взаимодействовать или что можно атаковать
+        LayerMask checkLayerMask = LayerMask.GetMask("Characters", "Interactable");
 
-        if (targetingSystem.TryGetTarget(checkDistance, checkLayerMask, out RaycastHit hitInfo))
+        if (targetingSystem.TryGetTarget(checkDistance, checkLayerMask, out var hitInfo))
         {
-            CharacterStats character = hitInfo.collider.GetComponent<CharacterStats>();
-            Interactable interactable = hitInfo.collider.GetComponent<Interactable>();
-
-            if (character != null && !partyManager.partyMembers.Contains(character))
+            if (hitInfo.collider.TryGetComponent<CharacterStats>(out var character))
             {
-                if (!character.IsDead)
+                // Игнорируем членов своей партии
+                if (!partyManager.PartyMembers.ToList().Contains(character))
                 {
-                    AIController npcCtrl = character.GetComponent<AIController>();
-                    string alignmentText = npcCtrl != null ? $" ({npcCtrl.currentAlignment})" : "";
-                    string previewText = $"{character.gameObject.name}{alignmentText} (HP: {character.currentHealth}/{character.maxHealth})";
-                    
-                    CharacterStats attacker = partyManager.ActiveMember;
-                    if (attacker != null && !attacker.IsDead)
-                    {
-                        int hitChance = Mathf.Clamp(70 + attacker.AgilityHitBonusPercent - character.AgilityEvasionBonusPercent, 10, 95);
-                        previewText += $" (Hit: {hitChance}%)";
-                    }
-                    return previewText;
-                }
-                else
-                {
-                    return interactable?.interactionPrompt ?? $"{character.gameObject.name} (Defeated)";
+                    return GetCharacterHoverInfo(character);
                 }
             }
-            
-            if (interactable != null)
+
+            if (hitInfo.collider.TryGetComponent<Interactable>(out var interactable))
             {
-                return interactable.interactionPrompt;
+                return interactable.InteractionPrompt;
             }
         }
 
-        return "";
+        return string.Empty;
+    }
+    
+    private string GetCharacterHoverInfo(CharacterStats target)
+    {
+        if (target.IsDead)
+        {
+            // Мертвый персонаж также может быть Interactable (LootableCorpse)
+            var interactable = target.GetComponent<Interactable>();
+            return interactable != null ? interactable.InteractionPrompt : $"{target.name} (Defeated)";
+        }
+        
+        var npcController = target.GetComponent<AIController>();
+        string alignmentText = npcController != null ? $" ({npcController.CurrentAlignment})" : "";
+        string info = $"{target.name}{alignmentText} (HP: {target.currentHealth}/{target.maxHealth})";
+        
+        var activePartyMember = partyManager.ActiveMember;
+        if (activePartyMember != null && !activePartyMember.IsDead)
+        {
+            // TODO: Вынести расчет шанса попадания в CombatHelper, чтобы избежать дублирования логики
+            int hitChance = 70 + activePartyMember.AgilityHitBonusPercent - target.AgilityEvasionBonusPercent;
+            hitChance = Mathf.Clamp(hitChance, 10, 95);
+            info += $" (Hit: {hitChance}%)";
+        }
+        
+        return info;
     }
 }

@@ -6,12 +6,10 @@ using System.Linq;
 [Serializable]
 public class HealEffectData : AbilityEffectData
 {
-    public int baseHealAmount = 10;
-    public AssociatedAttribute scalingAttribute = AssociatedAttribute.Mind;
-    [Tooltip("Коэффициент для атрибута, например, 2 означает +2 ХП за каждое очко атрибута")]
-    public float scaleFactor = 2f;
-    [Tooltip("Если true и TargetType способности - AreaAroundCaster, эффект применится ко всем целям в allTargetsInArea. Иначе - только к primaryTargetStats.")]
-    public bool applyToAllInAreaIfAoE = true;
+    [SerializeField] private int baseHealAmount = 10;
+    [SerializeField] private AssociatedAttribute scalingAttribute = AssociatedAttribute.Mind;
+    [SerializeField] private float scaleFactor = 2f;
+    [SerializeField] private bool applyToAllInAreaIfAoE = true;
 
     public override string ApplyEffect(CharacterStats casterStats, AbilityData sourceAbility, CharacterStats primaryTargetStats, Transform primaryTargetTransform, Vector3 castPoint, ref List<CharacterStats> allTargetsInArea)
     {
@@ -20,7 +18,7 @@ public class HealEffectData : AbilityEffectData
         string feedback = null;
 
         // Логика для AoE
-        if (applyToAllInAreaIfAoE && sourceAbility.targetType == TargetType.AreaAroundCaster)
+        if (applyToAllInAreaIfAoE && sourceAbility.TargetType == TargetType.AreaAroundCaster)
         {
             if (allTargetsInArea == null || allTargetsInArea.Count == 0) return null;
 
@@ -44,7 +42,7 @@ public class HealEffectData : AbilityEffectData
                 else // Если целей несколько, говорим в среднем
                 {
                     int avgHeal = Mathf.CeilToInt((float)totalHealedAmount / targetsAffected);
-                    feedback = $"{sourceAbility.abilityName} heals {targetsAffected} targets for an average of {avgHeal} HP.";
+                    feedback = $"{sourceAbility.AbilityName} heals {targetsAffected} targets for an average of {avgHeal} HP.";
                 }
             }
         }

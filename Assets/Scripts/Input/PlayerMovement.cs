@@ -1,80 +1,67 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
-using System.Linq; // Для Enumerable.Any() и Min() в GetCurrentPartyMovementSpeed_Test, если он еще нужен
-
+using System.Linq;
+/// <summary>
+/// Управляет передвижением и вращением камеры для объекта игрока.
+/// Скорость движения рассчитывается на основе средней скорости всех живых членов партии.
+/// </summary>
 [RequireComponent(typeof(CharacterController))]
+[RequireComponent(typeof(PlayerGlobalActions))]
+[RequireComponent(typeof(PartyManager))]
 public class PlayerMovement : MonoBehaviour
 {
-    // Убираем walkSpeed и sprintSpeed
-    // public float walkSpeed = 5f; 
-    // public float sprintSpeed = 8f; 
+    [Header("Настройки движения")]
+    [SerializeField] [Tooltip("Множитель скорости при спринте.")] private float sprintSpeedMultiplier = 1.5f;
+    [SerializeField] private float jumpHeight = 1.0f;
+    [SerializeField] private float gravity = -9.81f;
 
-    [Tooltip("Множитель скорости при спринте. Например, 1.5 означает на 50% быстрее.")]
-    public float sprintSpeedMultiplier = 1.5f; 
-    public float lookSensitivity = 0.1f;
-    public float gravity = -9.81f;
-    public float jumpHeight = 1.0f;
-    public float verticalLookLimit = 85f;
+    [Header("Настройки камеры")]
+    [SerializeField] private float lookSensitivity = 0.1f;
+    [SerializeField] [Range(45, 90)] private float verticalLookLimit = 85f;
 
     private CharacterController controller;
     private Transform cameraTransform;
     private PlayerGlobalActions playerGlobalActions;
-    private PartyManager partyManager; 
+    private PartyManager partyManager;
 
     private Vector2 moveInput;
     private Vector2 lookInput;
-    private bool jumpPressed = false;
-    private bool sprintHeld = false;
+    private bool jumpPressed;
+    private bool sprintHeld;
+    private float verticalVelocity;
+    private float cameraVerticalRotation;
 
-    // currentSpeed и horizontalMove теперь полностью рассчитываются в HandleMovement
-    private float verticalVelocity = 0f;
-    private float cameraVerticalRotation = 0f;
-    // private Vector3 horizontalMove; // Объявим его внутри Update или HandleMovement, если он больше нигде не нужен
-
-    void Awake()
+    private void Awake()
     {
         controller = GetComponent<CharacterController>();
-        playerGlobalActions = GetComponent<PlayerGlobalActions>(); 
-
+        playerGlobalActions = GetComponent<PlayerGlobalActions>();
+        partyManager = GetComponent<PartyManager>();
+        
+        // Поиск камеры среди дочерних объектов. Важно для FPS-контроллера.
         cameraTransform = GetComponentInChildren<Camera>()?.transform;
         if (cameraTransform == null)
         {
-            Debug.LogError("PlayerMovement: Камера не найдена как дочерний объект! Скрипт будет отключен.", this);
+            Debug.LogError($"[{nameof(PlayerMovement)}] Main camera not found as a child of '{gameObject.name}'. Disabling component.", this);
             enabled = false;
-            return;
         }
+    }
 
-        cameraTransform.localPosition = new Vector3(0, controller.height * 0.8f - controller.radius, controller.radius * 0.5f);
-
-        if (playerGlobalActions == null)
-        {
-            Debug.LogWarning("PlayerMovement: PlayerGlobalActions не найден. Поворот камеры мышью не будет отключаться при свободном курсоре.", this);
-        }
+    private void Update()
+    {
+        // Порядок важен: сначала вычисляем все векторы, затем применяем движение один раз.
+        HandleLook();
+        HandleGravityAndJump();
         
-        partyManager = GetComponent<PartyManager>(); 
-        if (partyManager == null) 
-        {
-             partyManager = GetComponentInParent<PartyManager>();
-        }
-        if (partyManager == null)
-        {
-            Debug.LogError("PlayerMovement: PartyManager не найден! Скорость отряда не будет рассчитываться корректно, будет использована дефолтная скорость одиночки.", this);
-        }
-        // currentSpeed = walkSpeed; // Убрали, так как currentSpeed больше нет
+        Vector3 horizontalMove = CalculateHorizontalMovement();
+        Vector3 finalMove = horizontalMove + (Vector3.up * verticalVelocity);
+        
+        controller.Move(finalMove * Time.deltaTime);
     }
 
-
-
-    public void OnMove(InputAction.CallbackContext context)
-    {
-        moveInput = context.ReadValue<Vector2>();
-    }
-
-    public void OnLook(InputAction.CallbackContext context)
-    {
-        lookInput = context.ReadValue<Vector2>();
-    }
-
+    #region Input Handlers (Called by PlayerInput component)
+    public void OnMove(InputAction.CallbackContext context) => moveInput = context.ReadValue<Vector2>();
+    public void OnLook(InputAction.CallbackContext context) => lookInput = context.ReadValue<Vector2>();
+    public void OnSprint(InputAction.CallbackContext context) => sprintHeld = context.ReadValueAsButton();
     public void OnJump(InputAction.CallbackContext context)
     {
         if (context.performed && controller.isGrounded)
@@ -82,122 +69,57 @@ public class PlayerMovement : MonoBehaviour
             jumpPressed = true;
         }
     }
+    #endregion
 
-    public void OnSprint(InputAction.CallbackContext context)
-    {
-        sprintHeld = context.ReadValueAsButton();
-    }
-
-    public void OnCrouch(InputAction.CallbackContext context)
-    {
-        // Логика приседания (будет реализована позже)
-    }
-
-    void Update()
-    {
-        // HandleSprint(); // Убрали, логика спринта теперь в HandleMovement
-        
-        Vector3 calculatedHorizontalMove = HandleMovementAndGetVector(); // Получаем горизонтальное движение
-        HandleLook(); // Поворот остается как был
-        HandleGravityAndJump(); // Гравитация и прыжок остаются как были
-
-        Vector3 finalMove = calculatedHorizontalMove + (Vector3.up * verticalVelocity);
-        controller.Move(finalMove * Time.deltaTime);
-
-        // Отладочный лог, если движение все еще не работает
-        // if (finalMove.magnitude < 0.01f && (moveInput.x != 0 || moveInput.y != 0) && calculatedHorizontalMove.magnitude < 0.01f)
-        // {
-        //     Debug.LogWarning($"PlayerMovement Update: finalMove ({finalMove.magnitude}) or horizontalMove ({calculatedHorizontalMove.magnitude}) is very small despite input. Check calculated speed.");
-        // }
-    }
-
-    // HandleSprint() удален
-
-    private float GetCurrentPartyBaseSpeed() // Переименовал для ясности, что это базовая скорость до спринта
-    {
-        if (partyManager == null || partyManager.partyMembers.Count == 0)
-        {
-            // Фоллбэк, если нет PartyManager: используем CharacterStats на этом объекте, если он есть
-            CharacterStats localStats = GetComponent<CharacterStats>(); 
-            if (localStats != null) {
-                // Debug.Log("PlayerMovement: Using local CharacterStats speed as fallback.");
-                return localStats.CurrentMovementSpeed;
-            }
-            Debug.LogWarning("PlayerMovement: PartyManager not found and no local CharacterStats. Using default speed 3f.");
-            return 3f; 
-        }
-
-        float totalPartySpeed = 0f;
-        int contributingMembersCount = 0;
-
-        foreach (CharacterStats member in partyManager.partyMembers)
-        {
-            if (member != null && !member.IsDead)
-            {
-                totalPartySpeed += member.CurrentMovementSpeed;
-                contributingMembersCount++;
-            }
-        }
-
-        if (contributingMembersCount == 0) 
-        {
-            // Debug.Log("PlayerMovement: No alive party members. Using very slow speed 0.5f.");
-            return 0.5f; 
-        }
-
-        float averagePartySpeed = totalPartySpeed / contributingMembersCount;
-        averagePartySpeed = Mathf.Ceil(averagePartySpeed); 
-        
-        return Mathf.Max(0.5f, averagePartySpeed);
-    }
-
-    // Изменяем HandleMovement, чтобы он ВОЗВРАЩАЛ вектор движения
-    private Vector3 HandleMovementAndGetVector()
+    #region Movement Logic
+    private Vector3 CalculateHorizontalMovement()
     {
         float baseSpeed = GetCurrentPartyBaseSpeed();
-        float actualSpeed = sprintHeld ? (baseSpeed * sprintSpeedMultiplier) : baseSpeed;
-        
-        // Debug.Log($"PlayerMovement HandleMovement: BaseSpeed={baseSpeed:F1}, SprintHeld={sprintHeld}, ActualSpeed={actualSpeed:F1}");
+        float currentSpeed = sprintHeld ? (baseSpeed * sprintSpeedMultiplier) : baseSpeed;
 
         Vector3 moveDirection = (transform.forward * moveInput.y) + (transform.right * moveInput.x);
-        
-        // Если actualSpeed очень мал, и есть ввод, это проблема
-        if (actualSpeed < 0.1f && (moveInput.x != 0 || moveInput.y != 0))
+        return moveDirection.normalized * currentSpeed;
+    }
+
+    private void HandleGravityAndJump()
+    {
+        if (controller.isGrounded && verticalVelocity < 0)
         {
-            Debug.LogError($"PlayerMovement HandleMovement: ActualSpeed is critically low ({actualSpeed}) while input is present. Investigate CharacterStats speeds.");
+            verticalVelocity = -2f; // Небольшое постоянное притяжение к земле
         }
 
-        return moveDirection.normalized * actualSpeed;
+        if (jumpPressed && controller.isGrounded)
+        {
+            verticalVelocity = Mathf.Sqrt(jumpHeight * -2f * gravity);
+            jumpPressed = false;
+        }
+
+        verticalVelocity += gravity * Time.deltaTime;
     }
-    
-    // HandleLook() и HandleGravityAndJump() остаются такими же, как в твоей рабочей версии
+
     private void HandleLook()
     {
-        if (playerGlobalActions != null && playerGlobalActions.IsCursorFree)
-        {
-            return; 
-        }
+        // Не вращаем камеру, если курсор свободен для взаимодействия с UI
+        if (playerGlobalActions.IsCursorFree) return;
+
         transform.Rotate(Vector3.up, lookInput.x * lookSensitivity);
+
         cameraVerticalRotation -= lookInput.y * lookSensitivity;
         cameraVerticalRotation = Mathf.Clamp(cameraVerticalRotation, -verticalLookLimit, verticalLookLimit);
         cameraTransform.localEulerAngles = new Vector3(cameraVerticalRotation, 0, 0);
     }
 
-    private void HandleGravityAndJump()
+    private float GetCurrentPartyBaseSpeed()
     {
-        bool isGrounded = controller.isGrounded;
-        if (isGrounded && verticalVelocity < 0)
+        var livingMembers = partyManager.PartyMembers.ToList().Where(m => m != null && !m.IsDead).ToList();
+
+        if (livingMembers.Count == 0)
         {
-            verticalVelocity = -2f; 
+            return 0.5f;
         }
-        if (jumpPressed && isGrounded)
-        {
-            verticalVelocity = Mathf.Sqrt(jumpHeight * -2f * gravity);
-            jumpPressed = false;
-        }
-        if (!isGrounded) 
-        {
-            verticalVelocity += gravity * Time.deltaTime;
-        }
+        
+        float averagePartySpeed = livingMembers.Average(m => m.CurrentMovementSpeed);
+        return Mathf.Max(0.5f, averagePartySpeed);
     }
+    #endregion
 }

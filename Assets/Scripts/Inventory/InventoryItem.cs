@@ -1,35 +1,29 @@
-
 using System;
-using UnityEngine;
 
+/// <summary>
+/// Представляет экземпляр предмета в инвентаре.
+/// Содержит ссылку на ItemData и изменяемые данные (количество, позиция).
+/// </summary>
 [Serializable]
 public class InventoryItem
 {
-        [NonSerialized] private Inventory ownerInventory;
-    public ItemData itemData;
-    public int quantity;
+    public ItemData ItemData;
+    public int Quantity;
+    public int GridPositionX;
+    public int GridPositionY;
 
-    // --- НОВЫЕ ПОЛЯ ---
-    public int gridPositionX;
-    public int gridPositionY;
+    // Ссылка на инвентарь-владелец. Не сериализуется, устанавливается в рантайме.
+    [NonSerialized] private Inventory ownerInventory;
 
-    // Конструктор теперь тоже должен принимать позицию
-    public InventoryItem(ItemData data, int initialQuantity = 1, int x = 0, int y = 0, Inventory owner = null)
+    public InventoryItem(ItemData data, int quantity, int x, int y, Inventory owner)
     {
-        itemData = data;
-        quantity = initialQuantity;
-        gridPositionX = x;
-        gridPositionY = y;
+        ItemData = data;
+        Quantity = quantity;
+        GridPositionX = x;
+        GridPositionY = y;
         ownerInventory = owner;
     }
 
-    public void SetOwner(Inventory owner)
-    {
-        ownerInventory = owner;
-    }
-    
-    public Inventory GetOwnerInventory()
-    {
-        return ownerInventory;
-    }
+    public Inventory GetOwnerInventory() => ownerInventory;
+    public void SetOwner(Inventory owner) => ownerInventory = owner;
 }

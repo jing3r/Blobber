@@ -1,14 +1,19 @@
 using UnityEngine;
 
+/// <summary>
+/// Управляет группой слотов экипировки (EquipmentSlotUI).
+/// Отвечает за их инициализацию.
+/// </summary>
 public class EquipmentPanelUI : MonoBehaviour
 {
+    /// <summary>
+    /// Инициализирует все дочерние слоты экипировки.
+    /// </summary>
     public void Initialize(CharacterEquipment characterEquipment)
     {
-        // Ищем слоты прямо здесь, включая неактивные.
-        // Это делает код устойчивым к тому, включены ли слоты в префабе по умолчанию.
+        // Ищем слоты, включая неактивные, чтобы сделать код более надежным
         var equipmentSlots = GetComponentsInChildren<EquipmentSlotUI>(true); 
         
-        // Передаем каждому слоту ссылку на компонент экипировки персонажа
         foreach (var slot in equipmentSlots)
         {
             slot.Initialize(characterEquipment);

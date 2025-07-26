@@ -6,29 +6,23 @@ using System.Collections.Generic;
 [Serializable]
 public class CreateZoneEffectData : AbilityEffectData
 {
-    [Tooltip("Префаб объекта-зоны, который будет создан.")]
-    public GameObject zonePrefab;
-    [Tooltip("Базовая длительность существования зоны в секундах.")]
-    public float baseZoneDuration = 10f;
-    [Tooltip("Атрибут кастера, влияющий на длительность зоны.")]
-    public AssociatedAttribute durationScalingAttribute = AssociatedAttribute.Mind;
-    [Tooltip("Сколько секунд добавляется к длительности за каждое очко атрибута.")]
-    public float durationPerAttributePoint = 1.0f;
+    [Header("Настройки зоны")]
+    [SerializeField] private GameObject zonePrefab;
+    [SerializeField] private float baseZoneDuration = 10f;
+    [SerializeField] private AssociatedAttribute durationScalingAttribute = AssociatedAttribute.Mind;
+    [SerializeField] private float durationPerAttributePoint = 1.0f;
 
-    [Header("Zone Placement Options")]
-    [Tooltip("Максимальная высота над землей, на которой может быть создана зона.")]
-    public float maxPlacementHeightAboveGround = 1.5f;
-    [Tooltip("Слой(и), считающийся 'землей' для размещения зоны.")]
-    public LayerMask groundPlacementMask;
+    [Header("Настройки размещения")]
+    [SerializeField] private float maxPlacementHeightAboveGround = 1.5f;
+    [SerializeField] private LayerMask groundPlacementMask;
 
-    [Header("Feedback")]
-    [Tooltip("Глагол для фидбека, описывающий действие. Например 'creates', 'places', 'summons'")]
-    public string placementVerb = "creates";
-
+    [Header("Фидбек")]
+    [SerializeField] private string placementVerb = "creates";
+    
     public override string ApplyEffect(CharacterStats casterStats, AbilityData sourceAbility, CharacterStats primaryTargetStats, Transform primaryTargetTransform, Vector3 castPoint, ref List<CharacterStats> allTargetsInArea)
     {
         if (zonePrefab == null || casterStats == null || sourceAbility == null) return null;
-        
+
         float finalDuration = baseZoneDuration;
         if (durationScalingAttribute != AssociatedAttribute.None)
         {
@@ -48,14 +42,14 @@ public class CreateZoneEffectData : AbilityEffectData
         }
         else
         {
-            return $"Cannot place {sourceAbility.abilityName} there.";
+            return $"Cannot place {sourceAbility.AbilityName} there.";
         }
 
         GameObject zoneInstance = GameObject.Instantiate(zonePrefab, finalSpawnPosition, Quaternion.identity);
 
         if (zoneInstance.GetComponent<SphereCollider>() is SphereCollider zoneTrigger)
         {
-            zoneTrigger.radius = sourceAbility.areaOfEffectRadius;
+            zoneTrigger.radius = sourceAbility.AreaOfEffectRadius;
         }
 
         if (zoneInstance.GetComponent<ZoneEffectController>() is ZoneEffectController zoneController)
@@ -66,7 +60,7 @@ public class CreateZoneEffectData : AbilityEffectData
         {
             GameObject.Destroy(zoneInstance, finalDuration);
         }
-        
-        return $"{casterStats.name} {placementVerb} a {sourceAbility.abilityName}.";
+
+        return $"{casterStats.name} {placementVerb} a {sourceAbility.AbilityName}.";
     }
 }

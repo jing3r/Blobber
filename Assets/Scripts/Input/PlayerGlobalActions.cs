@@ -2,45 +2,41 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 using System.Linq;
 
+/// <summary>
+/// Обрабатывает глобальные действия игрока, не связанные с передвижением или боем,
+/// такие как отдых, сохранение/загрузка, управление курсором.
+/// </summary>
+[RequireComponent(typeof(PartyManager))]
 public class PlayerGlobalActions : MonoBehaviour
 {
-    [Header("Настройки")]
-    public float interactionDistance = 3f; // Оставляем здесь, так как это параметр мира
-    public LayerMask interactionLayerMask;
-    
-    [Header("Настройки Отдыха")]
-    public float enemyCheckRadiusForRest = 15f;
-    public LayerMask characterLayerMaskForRest;
+    [Header("Настройки отдыха")]
+    [SerializeField] [Tooltip("Радиус, в котором не должно быть врагов для отдыха.")]
+    private float enemyCheckRadiusForRest = 15f;
+    [SerializeField] [Tooltip("Слой, на котором находятся персонажи (для проверки на врагов).")]
+    private LayerMask characterLayerMaskForRest;
 
-    private bool isCursorFree = false;
-    public bool IsCursorFree => isCursorFree;
+    public bool IsCursorFree { get; private set; }
 
-    // Ссылки на системы
     private PartyManager partyManager;
     private FeedbackManager feedbackManager;
     
-    void Awake()
+    private void Awake()
     {
         partyManager = GetComponent<PartyManager>();
         feedbackManager = FindObjectOfType<FeedbackManager>();
         
-        ApplyCursorState();
+        ApplyCursorState(false);
     }
     
+    #region Input Handlers (Called by PlayerInput component)
     public void OnToggleCursor(InputAction.CallbackContext context)
     {
         if (context.performed)
         {
-            isCursorFree = !isCursorFree;
-            ApplyCursorState();
+            ApplyCursorState(!IsCursorFree);
         }
     }
-    private void ApplyCursorState()
-    {
-        Cursor.lockState = isCursorFree ? CursorLockMode.None : CursorLockMode.Locked;
-        Cursor.visible = isCursorFree;
-    }
-
+    
     public void OnRest(InputAction.CallbackContext context)
     {
         if (context.performed)
@@ -48,39 +44,8 @@ public class PlayerGlobalActions : MonoBehaviour
             AttemptToRest();
         }
     }
-
-    private void AttemptToRest()
     
-    {
-        Collider[] nearbyColliders = Physics.OverlapSphere(transform.position, enemyCheckRadiusForRest, characterLayerMaskForRest);
-        
-        foreach (Collider col in nearbyColliders)
-        {
-            if (col.transform.IsChildOf(transform) || col.transform == transform) continue;
-
-            var nearbyAI = col.GetComponent<AIController>();
-            if (nearbyAI != null && nearbyAI.currentAlignment == AIController.Alignment.Hostile && !nearbyAI.MyStats.IsDead)
-            {
-                feedbackManager?.ShowFeedbackMessage("Cannot rest, enemies are nearby!");
-                return;
-            }
-        }
-
-        if (partyManager != null)
-        {
-            foreach (CharacterStats member in partyManager.partyMembers)
-            {
-                if (member != null && !member.IsDead)
-                {
-                    member.Heal(member.maxHealth); 
-                    member.GetComponent<CharacterAbilities>()?.RestoreAllAbilityCharges();
-                }
-            }
-            feedbackManager?.ShowFeedbackMessage("The party is well rested.");
-        }
-    }
-
-   public void OnSaveGame(InputAction.CallbackContext context)
+    public void OnSaveGame(InputAction.CallbackContext context)
     {
         if (context.performed && SaveManager.Instance != null)
         {
@@ -96,5 +61,49 @@ public class PlayerGlobalActions : MonoBehaviour
             SaveManager.Instance.LoadGame();
             feedbackManager?.ShowFeedbackMessage("Game Loaded!");
         }
+    }
+    #endregion
+
+    private void ApplyCursorState(bool isFree)
+    {
+        IsCursorFree = isFree;
+        Cursor.lockState = IsCursorFree ? CursorLockMode.None : CursorLockMode.Locked;
+        Cursor.visible = IsCursorFree;
+    }
+
+    private void AttemptToRest()
+    {
+        if (AreEnemiesNearby())
+        {
+            feedbackManager?.ShowFeedbackMessage("Cannot rest, enemies are nearby!");
+            return;
+        }
+
+        foreach (var member in partyManager.PartyMembers)
+        {
+            if (member != null && !member.IsDead)
+            {
+                member.Heal(member.maxHealth); 
+                member.GetComponent<CharacterAbilities>()?.RestoreAllAbilityCharges();
+                member.GetComponent<CharacterStatusEffects>()?.ClearStatusEffectsOnRest();
+            }
+        }
+        
+        feedbackManager?.ShowFeedbackMessage("The party is well rested.");
+    }
+    
+    private bool AreEnemiesNearby()
+    {
+        var nearbyColliders = Physics.OverlapSphere(transform.position, enemyCheckRadiusForRest, characterLayerMaskForRest);
+
+        // Проверяем, есть ли поблизости живые враги.
+        return nearbyColliders.Any(col =>
+        {
+            // Пропускаем коллайдеры, принадлежащие самой партии
+            if (col.transform.IsChildOf(transform) || col.transform == transform) return false;
+
+            var ai = col.GetComponent<AIController>();
+            return ai != null && ai.CurrentAlignment == AIController.Alignment.Hostile && !ai.MyStats.IsDead;
+        });
     }
 }

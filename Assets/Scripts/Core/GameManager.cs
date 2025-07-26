@@ -1,43 +1,56 @@
 using UnityEngine;
-// using UnityEngine.SceneManagement; // Раскомментировать, если будет использоваться перезагрузка сцены
 
+/// <summary>
+/// Главный управляющий класс игры (Singleton).
+/// Отвечает за глобальные состояния, такие как Game Over.
+/// </summary>
 public class GameManager : MonoBehaviour
 {
     public static GameManager Instance { get; private set; }
 
-    void Awake()
+    private void Awake()
     {
+        // Стандартная реализация Singleton
         if (Instance != null && Instance != this)
         {
             Destroy(gameObject);
             return;
         }
         Instance = this;
-        // DontDestroyOnLoad(gameObject); // Раскомментировать, если GameManager должен сохраняться между сценами
+        
+        // TODO: Раскомментировать, если GameManager должен сохраняться между сценами
+        // DontDestroyOnLoad(gameObject);
 
-        PartyManager.OnPartyWipe += HandleGameOver;
+        // Подписываемся на статическое событие, чтобы отреагировать на уничтожение партии
+        PartyManager.OnPartyWipe += HandlePartyWipe;
     }
 
-    private void HandleGameOver()
+    private void OnDestroy()
     {
-        Debug.LogError("GAME OVER! (Обработано GameManager)");
-        Time.timeScale = 0f; // Останавливаем время в игре
-
-        // Разблокируем курсор для возможного UI меню Game Over
-        Cursor.lockState = CursorLockMode.None;
-        Cursor.visible = true;
-
-        // Дальнейшие действия: показать UI, предложить загрузку/выход
-        // Debug.Log("Предложить игроку загрузить последнее сохранение или выйти в главное меню.");
-        // if (FindObjectOfType<GameOverUI>() != null) FindObjectOfType<GameOverUI>().Show();
-    }
-
-    void OnDestroy()
-    {
-        PartyManager.OnPartyWipe -= HandleGameOver;
+        // Отписываемся от события при уничтожении объекта, чтобы избежать утечек памяти
+        PartyManager.OnPartyWipe -= HandlePartyWipe;
         if (Instance == this)
         {
             Instance = null;
         }
+    }
+
+    /// <summary>
+    /// Обрабатывает событие полного уничтожения партии.
+    /// </summary>
+    private void HandlePartyWipe()
+    {
+        Debug.LogError("GAME OVER! The party has been wiped out.");
+        
+        // Останавливаем время в игре, чтобы прекратить все процессы
+        Time.timeScale = 0f;
+
+        // Освобождаем курсор для взаимодействия с UI
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
+
+        // TODO: Показать UI экрана "Game Over" с опциями загрузки или выхода в главное меню.
+        // var gameOverUI = FindObjectOfType<GameOverUI>();
+        // gameOverUI?.Show();
     }
 }

@@ -3,106 +3,129 @@ using System.IO;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.Serialization.Formatters.Binary;
+using System;
 
+/// <summary>
+/// Управляет процессами сохранения и загрузки игры (Singleton).
+/// </summary>
 public class SaveManager : MonoBehaviour
 {
     public static SaveManager Instance { get; private set; }
 
-    private string saveFileName = "savegame.dat";
-    private string saveFilePath;
-
-    void Awake()
-    {
-        if (Instance != null && Instance != this) { Destroy(gameObject); return; }
-        Instance = this;
-        saveFilePath = Path.Combine(Application.persistentDataPath, saveFileName);
-    }
+    [Header("Настройки сохранения")]
+    [SerializeField] private string saveFileName = "savegame.dat";
     
+    private string SaveFilePath => Path.Combine(Application.persistentDataPath, saveFileName);
+
+    private void Awake()
+    {
+        if (Instance != null && Instance != this) 
+        { 
+            Destroy(gameObject); 
+            return; 
+        }
+        Instance = this;
+    }
+
+    /// <summary>
+    /// Сохраняет текущее состояние игры в файл.
+    /// </summary>
     public void SaveGame()
     {
-        var saveData = new GameSaveData();
-        
-        // 1. Захватываем состояние всех ISaveable объектов в сцене
-        var worldState = new Dictionary<string, object>();
-        foreach (var saveable in FindObjectsOfType<SaveableEntity>(true))
-        {
-            ISaveable saveableComponent = saveable.GetComponent<ISaveable>();
-            if (saveableComponent != null)
-            {
-                worldState[saveable.UniqueId] = saveableComponent.CaptureState();
-            }
-        }
-        
-        // Конвертируем словарь в списки для сериализации
-        saveData.saveableEntityIds = worldState.Keys.ToList();
-        saveData.saveableEntityStates = worldState.Values.ToList();
-
-        // 2. Сохраняем файл
-        SaveFile(saveData);
+        var worldState = CaptureWorldState();
+        WriteSaveFile(worldState);
+        Debug.Log($"Game Saved to {SaveFilePath}");
     }
 
+    /// <summary>
+    /// Загружает состояние игры из файла.
+    /// </summary>
     public void LoadGame()
     {
-        var saveData = LoadFile();
-        if (saveData == null) return;
-        
-        // 1. Конвертируем списки обратно в словарь для удобного доступа
-        var worldState = new Dictionary<string, object>();
-        for (int i = 0; i < saveData.saveableEntityIds.Count; i++)
+        var worldState = ReadSaveFile();
+        if (worldState.Count > 0)
         {
-            worldState[saveData.saveableEntityIds[i]] = saveData.saveableEntityStates[i];
+            RestoreWorldState(worldState);
+            Debug.Log("Game Loaded.");
         }
+    }
 
-        // 2. Восстанавливаем состояние всех ISaveable объектов в сцене
+    private Dictionary<string, object> CaptureWorldState()
+    {
+        var state = new Dictionary<string, object>();
         foreach (var saveable in FindObjectsOfType<SaveableEntity>(true))
         {
-            if (worldState.TryGetValue(saveable.UniqueId, out object savedState))
+            var saveableComponent = saveable.GetComponent<ISaveable>();
+            if (saveableComponent != null)
             {
-                ISaveable saveableComponent = saveable.GetComponent<ISaveable>();
-                if (saveableComponent != null)
-                {
-                    saveableComponent.RestoreState(savedState);
-                }
+                state[saveable.UniqueId] = saveableComponent.CaptureState();
+            }
+        }
+        return state;
+    }
+
+    private void RestoreWorldState(Dictionary<string, object> state)
+    {
+        foreach (var saveable in FindObjectsOfType<SaveableEntity>(true))
+        {
+            if (state.TryGetValue(saveable.UniqueId, out object savedState))
+            {
+                var saveableComponent = saveable.GetComponent<ISaveable>();
+                saveableComponent?.RestoreState(savedState);
             }
         }
     }
 
-    private void SaveFile(GameSaveData saveData)
+    private void WriteSaveFile(Dictionary<string, object> worldState)
     {
+        var saveData = new GameSaveData
+        {
+            SaveableEntityIds = worldState.Keys.ToList(),
+            SaveableEntityStates = worldState.Values.ToList()
+        };
+
         try
         {
-            using (var stream = File.Open(saveFilePath, FileMode.Create))
+            using (var stream = File.Open(SaveFilePath, FileMode.Create))
             {
                 var formatter = new BinaryFormatter();
                 formatter.Serialize(stream, saveData);
             }
         }
-        catch (System.Exception e)
+        catch (Exception e)
         {
-            Debug.LogError($"SaveManager: Ошибка при сохранении файла: {e.Message}");
+            Debug.LogError($"[SaveManager] Failed to write save file: {e.Message}");
         }
     }
 
-    private GameSaveData LoadFile()
+    private Dictionary<string, object> ReadSaveFile()
     {
-        if (!File.Exists(saveFilePath))
+        string path = SaveFilePath;
+        if (!File.Exists(path))
         {
-            Debug.LogWarning("SaveManager: Файл сохранения не найден.");
-            return null;
+            Debug.LogWarning("[SaveManager] Save file not found.");
+            return new Dictionary<string, object>();
         }
 
         try
         {
-            using (var stream = File.Open(saveFilePath, FileMode.Open))
+            using (var stream = File.Open(path, FileMode.Open))
             {
                 var formatter = new BinaryFormatter();
-                return (GameSaveData)formatter.Deserialize(stream);
+                var saveData = (GameSaveData)formatter.Deserialize(stream);
+
+                var worldState = new Dictionary<string, object>();
+                for (int i = 0; i < saveData.SaveableEntityIds.Count; i++)
+                {
+                    worldState[saveData.SaveableEntityIds[i]] = saveData.SaveableEntityStates[i];
+                }
+                return worldState;
             }
         }
-        catch (System.Exception e)
+        catch (Exception e)
         {
-            Debug.LogError($"SaveManager: Ошибка при загрузке файла: {e.Message}.");
-            return null;
+            Debug.LogError($"[SaveManager] Failed to read or deserialize save file: {e.Message}");
+            return new Dictionary<string, object>();
         }
     }
 }
