@@ -478,6 +478,17 @@
                 },
                 {
                     "name": "",
+                    "id": "cee63f0a-a997-4432-b287-36a47dd5cd72",
+                    "path": "<Keyboard>/capsLock",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "ToggleCursor",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
                     "id": "07a22543-cba5-46ae-b834-1c732e64e44f",
                     "path": "<Mouse>/leftButton",
                     "interactions": "",

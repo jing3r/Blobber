@@ -203,26 +203,26 @@ MonoBehaviour:
     [LMB] - Primary
     Action (Attack/Interact)
 
-    [MMB] - Toggle Free Cursor
+    [MMB] / [CapsLock] - Toggle Free Cursor
 
-    [E] - Force Interact
+    [E]
+    - Force Interact
 
-    [F]
-    - Force Attack
+    [F] - Force Attack
 
 
 
     <b>Party Management</b>
 
-    [1-6] - Select Character /
-    Open Inventory
+    [1-6]
+    - Select Character / Open Inventory
 
     [Tab] - Cycle Next Ready Character
 
 
 
-    <b>Abilities &
-    Items</b>
+    <b>Abilities
+    & Items</b>
 
     [Q, Z-B, 7-0, Y, U] - Use Abilities
 
