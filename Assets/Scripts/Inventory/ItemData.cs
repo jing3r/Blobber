@@ -37,8 +37,7 @@ public class ItemData : ScriptableObject
 
     [Header("Свойства экипировки")]
     [SerializeField] private EquipmentSlotType validSlots = EquipmentSlotType.None;
-    
-    // Публичные свойства для доступа к данным только на чтение
+
     public string ItemName => itemName;
     public string Description => description;
     public Sprite Icon => icon;

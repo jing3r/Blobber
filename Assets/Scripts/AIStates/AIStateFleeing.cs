@@ -13,6 +13,7 @@ public class AIStateFleeing : IAIState
     
     public void EnterState(AIController controller)
     {
+        controller.Movement.SetStateSpeedMultiplier(1.2f);        
         // TODO: Заменить Resources.Load на систему управления ассетами (Asset Registry/Addressables).
         if (fearedStatusData == null)
         {
@@ -26,6 +27,7 @@ public class AIStateFleeing : IAIState
 
     public void ExitState(AIController controller)
     {
+        controller.Movement.SetStateSpeedMultiplier(1.0f);      
         controller.Movement.StopMovement();
         
         // После бегства всегда поворачиваемся лицом к бывшей угрозе.

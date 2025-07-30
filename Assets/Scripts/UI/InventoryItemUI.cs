@@ -121,12 +121,17 @@ public class InventoryItemUI : MonoBehaviour, IBeginDragHandler, IDragHandler, I
     #endregion
 
     #region Pointer Handlers (Interfaces)
-    public void OnPointerEnter(PointerEventData eventData) => isMouseOver = true;
+    public void OnPointerEnter(PointerEventData eventData)
+    {
+        isMouseOver = true;
+        parentGrid?.OnPointerEnter(eventData);
+    }
 
     public void OnPointerExit(PointerEventData eventData)
     {
         isMouseOver = false;
         TooltipManager.Instance?.HideTooltip();
+        parentGrid?.OnPointerExit(eventData);
     }
 
     public void OnPointerClick(PointerEventData eventData)

@@ -259,20 +259,14 @@ public class InputManager : MonoBehaviour
     {
         if (!context.performed) return;
 
-        var pointerEventData = new PointerEventData(EventSystem.current) { position = Mouse.current.position.ReadValue() };
-        var results = new List<RaycastResult>();
-        EventSystem.current.RaycastAll(pointerEventData, results);
-
-        foreach (var result in results)
+        if (InventoryUIManager.GridUnderMouse != null)
         {
-            if (result.gameObject.TryGetComponent<InventoryGridUI>(out var gridUI))
-            {
-                gridUI.GetLinkedInventory()?.ToggleArrange();
-                return;
-            }
+            InventoryUIManager.GridUnderMouse.GetLinkedInventory()?.ToggleArrange();
         }
-
-        feedbackManager?.ShowFeedbackMessage("Hover over an inventory to arrange it.");
+        else
+        {
+            feedbackManager?.ShowFeedbackMessage("Hover over an inventory to arrange.");
+        }
     }
 
     public void OnCancel(InputAction.CallbackContext context)

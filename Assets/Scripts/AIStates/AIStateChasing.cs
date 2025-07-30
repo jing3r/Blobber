@@ -10,13 +10,17 @@ public class AIStateChasing : IAIState
 
     public void EnterState(AIController controller)
     {
+        controller.Movement.SetStateSpeedMultiplier(1.0f);         
         if (controller.CurrentThreat == null)
         {
             controller.ChangeState(AIController.AIState.Idle);
         }
     }
 
-    public void ExitState(AIController controller) { }
+    public void ExitState(AIController controller)
+    {
+        controller.Movement.SetStateSpeedMultiplier(1.0f);      
+    }
 
     public void UpdateState(AIController controller)
     {

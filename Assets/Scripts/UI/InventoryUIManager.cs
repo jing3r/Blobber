@@ -11,7 +11,19 @@ public class InventoryUIManager : MonoBehaviour
     [SerializeField] private GameObject inventoryWindowPrefab;
     [SerializeField] private Transform partyInventoriesContainer;
     [SerializeField] private Transform worldInventoriesContainer;
-
+    public static InventoryGridUI GridUnderMouse { get; private set; }
+    public static void SetGridUnderMouse(InventoryGridUI grid)
+    {
+        GridUnderMouse = grid;
+    }
+    public static void ClearGridUnderMouse(InventoryGridUI grid)
+    {
+        // Очищаем, только если курсор действительно ушел с ЭТОЙ сетки
+        if (GridUnderMouse == grid)
+        {
+            GridUnderMouse = null;
+        }
+    }
     private PartyManager partyManager;
     private readonly Dictionary<Inventory, InventoryUI> openWindows = new Dictionary<Inventory, InventoryUI>();
 

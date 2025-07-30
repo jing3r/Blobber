@@ -9,6 +9,7 @@ public class AIStateWandering : IAIState
 
     public void EnterState(AIController controller)
     {
+        controller.Movement.SetStateSpeedMultiplier(0.7f);
         // Если по какой-то причине мы вошли в это состояние, не имея цели,
         // немедленно пытаемся ее найти или вернуться в Idle.
         if (!controller.WanderBehavior.IsWandering)
@@ -22,6 +23,7 @@ public class AIStateWandering : IAIState
     
     public void ExitState(AIController controller)
     {
+        controller.Movement.SetStateSpeedMultiplier(1.0f);        
         // Важно остановить блуждание при выходе из состояния, чтобы сбросить таймер.
         controller.WanderBehavior.StopWandering();
     }

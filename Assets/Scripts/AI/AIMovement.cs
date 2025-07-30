@@ -11,6 +11,7 @@ public class AIMovement : MonoBehaviour
 {
     private NavMeshAgent agent;
     private CharacterStats myStats;
+    private float stateSpeedMultiplier = 1.0f; 
     
     private Transform followTarget;
     private bool isFollowingTarget;
@@ -138,13 +139,23 @@ public class AIMovement : MonoBehaviour
     public void DisableAgent() { if (agent != null && agent.enabled) agent.enabled = false; }
 
     /// <summary>
+    /// Устанавливает множитель скорости для текущего состояния AI (например, 0.7 для блуждания, 1.2 для бегства).
+    /// </summary>
+    public void SetStateSpeedMultiplier(float multiplier)
+    {
+        stateSpeedMultiplier = Mathf.Max(0.1f, multiplier);
+        UpdateAgentSpeedFromStats();
+    }
+
+    /// <summary>
     /// Синхронизирует скорость NavMeshAgent со значением из CharacterStats.
     /// </summary>
     private void UpdateAgentSpeedFromStats()
     {
-        if (agent.isOnNavMesh && agent.speed != myStats.CurrentMovementSpeed)
-        {
-            agent.speed = myStats.CurrentMovementSpeed;
-        }
+            float targetSpeed = myStats.CurrentMovementSpeed * stateSpeedMultiplier;
+            if (agent.speed != targetSpeed)
+            {
+                agent.speed = targetSpeed;
+            }
     }
 }

@@ -196,74 +196,73 @@ MonoBehaviour:
 
     [Alt] (Hold) - Sprint
 
-    
+
 
     <b>Core Actions</b>
 
-    [LMB]
-    - Primary Action (Attack/Interact)
+    [LMB] - Primary
+    Action (Attack/Interact)
 
     [MMB] - Toggle Free Cursor
 
-    [E]
-    - Force Interact
+    [E] - Force Interact
 
-    [F] - Force Attack
+    [F]
+    - Force Attack
 
-    
+
 
     <b>Party Management</b>
 
-    [1-6]
-    - Select Character / Open Inventory
+    [1-6] - Select Character /
+    Open Inventory
 
     [Tab] - Cycle Next Ready Character
 
-    
 
-    <b>Abilities
-    & Items</b>
+
+    <b>Abilities &
+    Items</b>
 
     [Q, Z-B, 7-0, Y, U] - Use Abilities
 
-    [RMB] (Hold over
-    item) - Show Tooltip
+    [RMB] (Hold over item)
+    - Show Tooltip
 
-    
+
 
     <b>Inventory Management</b>
 
-    [I] - Toggle
-    All Inventories
+    [I] - Toggle All Inventories
 
-    [G] - Take All from open containers
+    [G]
+    - Take All from open containers
 
-    [N] (Hover over
-    inventory) - Arrange
+    [N] (Hover over inventory) - Arrange
 
-    [Shift+LMB] (On item) - Fast Transfer
+    [Shift+LMB]
+    (On item) - Fast Transfer
 
-    [Alt+LMB]
-    (On stack) - Split Half
+    [Alt+LMB] (On stack) - Split Half
 
-    [Ctrl+Alt+LMB] (On stack) - Split One
+    [Ctrl+Alt+LMB]
+    (On stack) - Split One
 
-    [Num
-    1-6] (Hover over item) - Direct Transfer
+    [Num 1-6] (Hover over item) - Direct Transfer
 
-    
 
-    <b>System & UI</b>
 
-    [Esc]
-    - Close Windows / Open Menu
+    <b>System
+    & UI</b>
+
+    [Esc] - Close Windows / Open Menu
 
     [R] - Rest
 
-    [F5] - Quick Save
+    [F5] - Quick
+    Save
 
-    [F9]
-    - Quick Load'
+    [F9] - Quick Load'
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
   m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
@@ -2732,6 +2731,18 @@ PrefabInstance:
       propertyPath: m_Materials.Array.data[0]
       value: 
       objectReference: {fileID: 2100000, guid: 12bd869fddb94c94e83a827a81ac1167, type: 2}
+    - target: {fileID: 4483539311815697704, guid: 65c4f5c0d57709349bb6dfa7a10f80d2, type: 3}
+      propertyPath: wanderRadius
+      value: 10
+      objectReference: {fileID: 0}
+    - target: {fileID: 4483539311815697704, guid: 65c4f5c0d57709349bb6dfa7a10f80d2, type: 3}
+      propertyPath: maxWanderWaitTime
+      value: 3
+      objectReference: {fileID: 0}
+    - target: {fileID: 4483539311815697704, guid: 65c4f5c0d57709349bb6dfa7a10f80d2, type: 3}
+      propertyPath: minWanderWaitTime
+      value: 1
+      objectReference: {fileID: 0}
     - target: {fileID: 5968593128406014439, guid: 65c4f5c0d57709349bb6dfa7a10f80d2, type: 3}
       propertyPath: m_Direction
       value: 1
@@ -3419,6 +3430,18 @@ PrefabInstance:
       propertyPath: m_Materials.Array.data[0]
       value: 
       objectReference: {fileID: 2100000, guid: 474f0e87721a52b4b9616d6d748ac58c, type: 2}
+    - target: {fileID: 4483539311815697704, guid: 65c4f5c0d57709349bb6dfa7a10f80d2, type: 3}
+      propertyPath: wanderRadius
+      value: 10
+      objectReference: {fileID: 0}
+    - target: {fileID: 4483539311815697704, guid: 65c4f5c0d57709349bb6dfa7a10f80d2, type: 3}
+      propertyPath: maxWanderWaitTime
+      value: 3
+      objectReference: {fileID: 0}
+    - target: {fileID: 4483539311815697704, guid: 65c4f5c0d57709349bb6dfa7a10f80d2, type: 3}
+      propertyPath: minWanderWaitTime
+      value: 1
+      objectReference: {fileID: 0}
     - target: {fileID: 5968593128406014439, guid: 65c4f5c0d57709349bb6dfa7a10f80d2, type: 3}
       propertyPath: m_Direction
       value: 1
@@ -3901,6 +3924,18 @@ PrefabInstance:
       propertyPath: m_Materials.Array.data[0]
       value: 
       objectReference: {fileID: 2100000, guid: 12bd869fddb94c94e83a827a81ac1167, type: 2}
+    - target: {fileID: 4483539311815697704, guid: 65c4f5c0d57709349bb6dfa7a10f80d2, type: 3}
+      propertyPath: wanderRadius
+      value: 10
+      objectReference: {fileID: 0}
+    - target: {fileID: 4483539311815697704, guid: 65c4f5c0d57709349bb6dfa7a10f80d2, type: 3}
+      propertyPath: maxWanderWaitTime
+      value: 3
+      objectReference: {fileID: 0}
+    - target: {fileID: 4483539311815697704, guid: 65c4f5c0d57709349bb6dfa7a10f80d2, type: 3}
+      propertyPath: minWanderWaitTime
+      value: 1
+      objectReference: {fileID: 0}
     - target: {fileID: 5968593128406014439, guid: 65c4f5c0d57709349bb6dfa7a10f80d2, type: 3}
       propertyPath: m_Direction
       value: 1
@@ -4615,6 +4650,18 @@ PrefabInstance:
     - target: {fileID: 4018121502344025493, guid: 65c4f5c0d57709349bb6dfa7a10f80d2, type: 3}
       propertyPath: visionConeAngle
       value: 360
+      objectReference: {fileID: 0}
+    - target: {fileID: 4483539311815697704, guid: 65c4f5c0d57709349bb6dfa7a10f80d2, type: 3}
+      propertyPath: wanderRadius
+      value: 10
+      objectReference: {fileID: 0}
+    - target: {fileID: 4483539311815697704, guid: 65c4f5c0d57709349bb6dfa7a10f80d2, type: 3}
+      propertyPath: maxWanderWaitTime
+      value: 3
+      objectReference: {fileID: 0}
+    - target: {fileID: 4483539311815697704, guid: 65c4f5c0d57709349bb6dfa7a10f80d2, type: 3}
+      propertyPath: minWanderWaitTime
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 5968593128406014439, guid: 65c4f5c0d57709349bb6dfa7a10f80d2, type: 3}
       propertyPath: m_Direction
@@ -5543,6 +5590,18 @@ PrefabInstance:
       propertyPath: m_Materials.Array.data[0]
       value: 
       objectReference: {fileID: 2100000, guid: 474f0e87721a52b4b9616d6d748ac58c, type: 2}
+    - target: {fileID: 4483539311815697704, guid: 65c4f5c0d57709349bb6dfa7a10f80d2, type: 3}
+      propertyPath: wanderRadius
+      value: 10
+      objectReference: {fileID: 0}
+    - target: {fileID: 4483539311815697704, guid: 65c4f5c0d57709349bb6dfa7a10f80d2, type: 3}
+      propertyPath: maxWanderWaitTime
+      value: 3
+      objectReference: {fileID: 0}
+    - target: {fileID: 4483539311815697704, guid: 65c4f5c0d57709349bb6dfa7a10f80d2, type: 3}
+      propertyPath: minWanderWaitTime
+      value: 1
+      objectReference: {fileID: 0}
     - target: {fileID: 5968593128406014439, guid: 65c4f5c0d57709349bb6dfa7a10f80d2, type: 3}
       propertyPath: m_Direction
       value: 1
@@ -6286,6 +6345,18 @@ PrefabInstance:
       propertyPath: m_Materials.Array.data[0]
       value: 
       objectReference: {fileID: 2100000, guid: 6440a4fabadf0b2418799a6034f7c41e, type: 2}
+    - target: {fileID: 4483539311815697704, guid: 65c4f5c0d57709349bb6dfa7a10f80d2, type: 3}
+      propertyPath: wanderRadius
+      value: 10
+      objectReference: {fileID: 0}
+    - target: {fileID: 4483539311815697704, guid: 65c4f5c0d57709349bb6dfa7a10f80d2, type: 3}
+      propertyPath: maxWanderWaitTime
+      value: 3
+      objectReference: {fileID: 0}
+    - target: {fileID: 4483539311815697704, guid: 65c4f5c0d57709349bb6dfa7a10f80d2, type: 3}
+      propertyPath: minWanderWaitTime
+      value: 1
+      objectReference: {fileID: 0}
     - target: {fileID: 5968593128406014439, guid: 65c4f5c0d57709349bb6dfa7a10f80d2, type: 3}
       propertyPath: m_Direction
       value: 1
@@ -6755,6 +6826,18 @@ PrefabInstance:
       propertyPath: m_Materials.Array.data[0]
       value: 
       objectReference: {fileID: 2100000, guid: 12bd869fddb94c94e83a827a81ac1167, type: 2}
+    - target: {fileID: 4483539311815697704, guid: 65c4f5c0d57709349bb6dfa7a10f80d2, type: 3}
+      propertyPath: wanderRadius
+      value: 10
+      objectReference: {fileID: 0}
+    - target: {fileID: 4483539311815697704, guid: 65c4f5c0d57709349bb6dfa7a10f80d2, type: 3}
+      propertyPath: maxWanderWaitTime
+      value: 3
+      objectReference: {fileID: 0}
+    - target: {fileID: 4483539311815697704, guid: 65c4f5c0d57709349bb6dfa7a10f80d2, type: 3}
+      propertyPath: minWanderWaitTime
+      value: 1
+      objectReference: {fileID: 0}
     - target: {fileID: 5968593128406014439, guid: 65c4f5c0d57709349bb6dfa7a10f80d2, type: 3}
       propertyPath: m_Direction
       value: 1
@@ -7100,6 +7183,18 @@ PrefabInstance:
       propertyPath: m_Materials.Array.data[0]
       value: 
       objectReference: {fileID: 2100000, guid: 12bd869fddb94c94e83a827a81ac1167, type: 2}
+    - target: {fileID: 4483539311815697704, guid: 65c4f5c0d57709349bb6dfa7a10f80d2, type: 3}
+      propertyPath: wanderRadius
+      value: 10
+      objectReference: {fileID: 0}
+    - target: {fileID: 4483539311815697704, guid: 65c4f5c0d57709349bb6dfa7a10f80d2, type: 3}
+      propertyPath: maxWanderWaitTime
+      value: 3
+      objectReference: {fileID: 0}
+    - target: {fileID: 4483539311815697704, guid: 65c4f5c0d57709349bb6dfa7a10f80d2, type: 3}
+      propertyPath: minWanderWaitTime
+      value: 1
+      objectReference: {fileID: 0}
     - target: {fileID: 5968593128406014439, guid: 65c4f5c0d57709349bb6dfa7a10f80d2, type: 3}
       propertyPath: m_Direction
       value: 1

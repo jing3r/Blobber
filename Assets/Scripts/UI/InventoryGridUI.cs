@@ -1,12 +1,14 @@
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.EventSystems; 
 using System.Collections.Generic;
+
 
 /// <summary>
 /// Управляет визуальным представлением сетки инвентаря.
 /// Отвечает за создание ячеек и размещение UI-элементов предметов.
 /// </summary>
-public class InventoryGridUI : MonoBehaviour
+public class InventoryGridUI : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
 {
     [Header("Префабы и контейнеры")]
     [SerializeField] private GameObject gridSlotPrefab;
@@ -43,7 +45,22 @@ public class InventoryGridUI : MonoBehaviour
             -item.GridPositionY * (gridLayout.cellSize.y + gridLayout.spacing.y)
         );
     }
+    
+    /// <summary>
+    /// Вызывается, когда курсор мыши входит в область этого UI-элемента.
+    /// </summary>
+    public void OnPointerEnter(PointerEventData eventData)
+    {
+        InventoryUIManager.SetGridUnderMouse(this);
+    }
 
+    /// <summary>
+    /// Вызывается, когда курсор мыши покидает область этого UI-элемента.
+    /// </summary>
+    public void OnPointerExit(PointerEventData eventData)
+    {
+        InventoryUIManager.ClearGridUnderMouse(this);
+    }
     private void OnDestroy()
     {
         if (linkedInventory != null)
